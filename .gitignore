@@ -42,3 +42,4 @@ dist-ssr/
 
 # Other
 scratch/
+*.db
