@@ -8,6 +8,7 @@ import { useFeedStore } from '@/stores';
 import { GlassCard } from '@/components/ui';
 import { ai } from '@/lib/api';
 import { TimeSeriesChart } from './visualizations/TimeSeriesChart';
+import { MarketShareView } from './visualizations/MarketShareView';
 import { ConsumerConfidenceView } from './visualizations/ConsumerConfidenceView'; // 引入定制化宏观视图
 import { BatteryDensityView } from './visualizations/BatteryDensityView'; // 引入电池天梯视图
 import { ADBenchmarkingView } from './visualizations/ADBenchmarkingView'; // 引入智驾对标雷达
@@ -224,152 +225,11 @@ export function PresentationLayer({ panel, feed, signals = [], onOpenReader }: {
     case 'gauge':
       return <TelemetryGauge panelId={panel.id} signals={signals} />;
     case 'pie':
-      return <MarketSharePie panelId={panel.id} signals={signals} />;
+      return <MarketShareView panelId={panel.id} signals={signals} />;
     case 'ticker':
     default:
       return <EventTickerContent feed={feed} signals={signals} onOpenReader={onOpenReader} />;
   }
-}
-
-// ============================================
-// Market Share Pie Component
-// ============================================
-
-function MarketSharePie({ panelId, signals = [] }: { panelId: string, signals: any[] }) {
-  const [market, setMarket] = useState<'China' | 'Europe' | 'USA' | 'Global'>('Global');
-  const [segment, setSegment] = useState<'Overall' | 'SUV' | 'Sedan'>('Overall');
-
-  // 根据筛选条件模拟不同的数据分布
-  const getData = () => {
-    // 基础权重
-    const base = {
-      Global: [
-        { value: 21.5, name: 'BYD', color: '#10b981' },
-        { value: 14.2, name: 'Tesla', color: '#ef4444' },
-        { value: 11.8, name: 'Toyota', color: '#3b82f6' },
-        { value: 9.4, name: 'VW', color: '#f59e0b' },
-        { value: 6.2, name: 'Hyundai', color: '#8b5cf6' },
-        { value: 5.8, name: 'Stellantis', color: '#ec4899' },
-        { value: 4.5, name: 'GM', color: '#06b6d4' },
-        { value: 26.6, name: 'Others', color: '#4b5563' }
-      ],
-      China: [
-        { value: 35.1, name: 'BYD', color: '#10b981' },
-        { value: 10.3, name: 'Tesla', color: '#ef4444' },
-        { value: 8.5, name: 'Geely', color: '#3b82f6' },
-        { value: 7.2, name: 'Aion', color: '#f59e0b' },
-        { value: 6.8, name: 'Changan', color: '#8b5cf6' },
-        { value: 5.4, name: 'Li Auto', color: '#ec4899' },
-        { value: 4.2, name: 'NIO', color: '#06b6d4' },
-        { value: 3.8, name: 'Xiaomi', color: '#f97316' },
-        { value: 18.7, name: 'Others', color: '#4b5563' }
-      ],
-      Europe: [
-        { value: 22.4, name: 'VW', color: '#f59e0b' },
-        { value: 16.2, name: 'Tesla', color: '#ef4444' },
-        { value: 10.1, name: 'BMW', color: '#3b82f6' },
-        { value: 9.4, name: 'Mercedes', color: '#8b5cf6' },
-        { value: 8.2, name: 'Renault', color: '#ec4899' },
-        { value: 5.4, name: 'BYD', color: '#10b981' },
-        { value: 4.8, name: 'MG', color: '#06b6d4' },
-        { value: 23.5, name: 'Others', color: '#4b5563' }
-      ],
-      USA: [
-        { value: 51.1, name: 'Tesla', color: '#ef4444' },
-        { value: 9.2, name: 'Ford', color: '#3b82f6' },
-        { value: 8.4, name: 'GM', color: '#f59e0b' },
-        { value: 5.2, name: 'Hyundai', color: '#10b981' },
-        { value: 4.8, name: 'Kia', color: '#8b5cf6' },
-        { value: 4.1, name: 'Rivian', color: '#06b6d4' },
-        { value: 3.5, name: 'Lucid', color: '#ec4899' },
-        { value: 13.7, name: 'Others', color: '#4b5563' }
-      ]
-    }[market];
-
-    // 如果选了 SUV 或 Sedan，做一点扰动模拟真实感
-    const noise = segment === 'Overall' ? 1 : segment === 'SUV' ? 1.1 : 0.9;
-    return base.map(d => ({
-      ...d,
-      value: parseFloat((d.value * (d.name === 'Tesla' && segment === 'Sedan' ? 1.3 : noise)).toFixed(1)),
-      itemStyle: { color: d.color }
-    }));
-  };
-
-  const option = {
-    backgroundColor: 'transparent',
-    tooltip: {
-      trigger: 'item',
-      backgroundColor: 'rgba(0,0,0,0.8)',
-      borderColor: 'rgba(255,255,255,0.1)',
-      textStyle: { color: '#fff', fontSize: 10 },
-      formatter: '{b}: {c}%'
-    },
-    series: [
-      {
-        name: 'Market Share',
-        type: 'pie',
-        radius: ['32%', '55%'], // 半径进一步扩张
-        center: ['50%', '52%'], 
-        avoidLabelOverlap: true,
-        itemStyle: { borderRadius: 3, borderColor: 'transparent', borderWidth: 1.5 },
-        label: { 
-          show: true, 
-          position: 'outside', 
-          color: 'rgba(255,255,255,0.7)', 
-          fontSize: 7, 
-          distanceToLabelLine: 2,
-          formatter: '{b}' 
-        },
-        labelLine: {
-          show: true,
-          length: 4, // 缩短第一段引导线
-          length2: 3, // 缩短第二段引导线
-          lineStyle: { color: 'rgba(255,255,255,0.1)' }
-        },
-        emphasis: { label: { show: true, fontSize: 9, fontWeight: 'bold', color: '#fff' } },
-        data: getData()
-      }
-    ]
-  };
-
-  return (
-    <div className="h-full w-full flex flex-col overflow-hidden">
-      {/* 极简筛选器 UI */}
-      <div className="flex flex-wrap gap-x-1.5 gap-y-1 px-2 pt-1 border-b border-white/5 pb-1 justify-center bg-white/5">
-        <div className="flex gap-1">
-          {['CN', 'EU', 'US', 'GL'].map(m => (
-            <button 
-              key={m} 
-              onClick={() => setMarket({CN: 'China', EU: 'Europe', US: 'USA', GL: 'Global'}[m] as any)}
-              className={`text-[7px] px-1 py-0.5 rounded-sm transition-all font-bold ${market.startsWith({CN: 'Chi', EU: 'Eur', US: 'USA', GL: 'Glo'}[m]) ? 'bg-violet-500 text-white' : 'text-white/20 hover:text-white/40'}`}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-1">
-          {['ALL', 'SUV', 'SED'].map(s => (
-            <button 
-              key={s} 
-              onClick={() => setSegment({ALL: 'Overall', SUV: 'SUV', SED: 'Sedan'}[s] as any)}
-              className={`text-[7px] px-1 py-0.5 rounded-sm transition-all font-bold ${segment.startsWith({ALL: 'Ove', SUV: 'SUV', SED: 'Sed'}[s]) ? 'bg-emerald-500 text-white' : 'text-white/20 hover:text-white/40'}`}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex-1 min-h-0 relative">
-        <ReactECharts 
-          option={option} 
-          style={{ height: '100%', width: '100%' }}
-          opts={{ renderer: 'svg' }}
-          notMerge={true}
-        />
-      </div>
-    </div>
-  );
 }
 
 // ============================================

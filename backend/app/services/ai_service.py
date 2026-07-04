@@ -12,6 +12,11 @@ from app.api.v1.websocket import manager
 logger = logging.getLogger(__name__)
 
 class AIService:
+    VALIDATION_PROMPT = """容错与数据校验（强制约束）：
+           - 绝不交白卷：即便原文信息极度模糊或不完整，也必须强行提炼并返回完整的 JSON 结构，绝不允许返回空数组 `[]`。
+           - 缺失字段兜底：如果原文完全缺失某项指标，且无法通过分析师常识估算，请统一使用 "NA"（字符串类型）或 0（数值类型）进行占位。
+           - 结构防御：输出前请自查，绝不允许私自修改、删减或增加 JSON 预设的 Keys。确保百分比、数值和枚举值完全合法且不带多余的单位字符。"""
+
     def __init__(self, db: AsyncSession):
         self.db = db
         # 同步前端 MOCK_PANELS 定义的角色与面板映射
@@ -320,6 +325,8 @@ class AIService:
            - "region": 国家或地区 (如 "欧盟", "美国", "东南亚")。
            - "summary": 详细的政策解读。
 
+        {self.VALIDATION_PROMPT}
+
         待分析情报集合：
         {content}
 
@@ -340,6 +347,8 @@ class AIService:
            - "type": 调价类型 ("Official" 官方调价 或 "Dealer" 终端优惠)。
            - "trend": "UP" (涨价) 或 "DOWN" (降价)。
 
+        {self.VALIDATION_PROMPT}
+
         待分析情报集合：
         {content}
 
@@ -358,6 +367,8 @@ class AIService:
            - "barrier": 具体的非关税壁垒描述。
            - "impact": 简短的行业影响分析。
 
+        {self.VALIDATION_PROMPT}
+
         待分析情报集合：
         {content}
 
@@ -375,6 +386,8 @@ class AIService:
            - "version": 软件版本号。
            - "features": 核心升级内容列表 (如 ["新增自动泊车", "优化智驾算法"])。
 
+        {self.VALIDATION_PROMPT}
+
         待分析情报集合：
         {content}
 
@@ -391,6 +404,8 @@ class AIService:
            - "track": 技术赛道 (必须是 "Energy", "AD", 或 "EE" 之一)。
            - "milestone": 里程碑事件描述。
            - "impact_score": 0-100 (量产/成熟 >80, 试点/预研 50, 基础研究 <30)。
+
+        {self.VALIDATION_PROMPT}
 
         待分析情报集合：
         {content}
@@ -412,6 +427,8 @@ class AIService:
            - "coverage": 城市 NOA 覆盖率评分 (0-100)。
            - "ux": 用户体验评分 (0-100)。
 
+        {self.VALIDATION_PROMPT}
+
         待分析情报集合：
         {content}
 
@@ -429,6 +446,8 @@ class AIService:
            - "unit": 价格单位 (如 "万元/吨")。
            - "change": 价格变动百分比 (如 "+2.3%")。
            - "sentiment": 1.0 (价格下跌利好) 到 -1.0 (价格上涨利空)。
+
+        {self.VALIDATION_PROMPT}
 
         待分析情报集合：
         {content}
@@ -449,6 +468,8 @@ class AIService:
            - "status": 运营状态 ("Stable", "Warning", "Crisis")。
            - "risks": 具体风险项列表。
 
+        {self.VALIDATION_PROMPT}
+
         待分析情报集合：
         {content}
 
@@ -467,6 +488,8 @@ class AIService:
            - "status": 拥堵状态 ("Normal", "Congested", "Severe")。
            - "impact_score": 0-100。
 
+        {self.VALIDATION_PROMPT}
+
         待分析情报集合：
         {content}
 
@@ -477,11 +500,15 @@ class AIService:
         return f"""你是一个行业数据分析师。请分析下述一批销量与市占率情报。
 
         要求：
-        1. 提取各品牌的市场份额数据，转化为 JSON 数组。
-        2. 每个数组对象必须包含以下 metrics 字段：
-           - "brand": 品牌名称。
-           - "share": 市占率百分比数值 (如 15.2)。
-           - "change": 份额变动 (如 "+0.8%")。
+        1. 提取各品牌的市场份额数据，转化为 JSON 数组。哪怕原文比较模糊，也请务必提取，千万不要返回空数组。
+        2. 每个数组对象必须包含以下 metrics 字段（若原文缺失某项，可以直接填写 NA）：
+           - "brand": 品牌名称。请统一使用以下标准英文名称之一: 'BYD', 'Tesla', 'Toyota', 'VW', 'Hyundai', 'Stellantis', 'GM', 'Geely', 'NIO', 'Li Auto', 'Xiaomi', 'Ford', 'BMW', 'Mercedes', 'Renault', 'MG', 'Kia', 'Rivian', 'Lucid', 'Aion', 'Changan', 'Honda', 'Nissan', 'Mazda', 'Subaru', 'Suzuki', 'Porsche', 'Audi', 'Volvo', 'XPeng', 'Leapmotor', 'Zeekr', 'Avatr', 'Deepal', 'AITO', 'Chery', 'GWM', 'SAIC', 'FAW', 'Dongfeng', 'BAIC', 'Polestar', 'Land Rover', 'Jaguar', 'Lexus', 'Cadillac', 'Chevrolet'，如果不属于这些品牌，请输出实际名称。
+           - "share": 市占率百分比数值 (如 15.2)。如果文中只有销量数据，请自行计算市占率；如果没有数字，请根据语境合理估算一个百分比。
+           - "change": 份额变动 (如 "+0.8%")。如未提及默认填 "0%"。
+           - "market": 所属市场，只能选择"China", "Europe", "USA"之一。如果情报是全球或未提及，请根据上下文强制分配到一个最相关的具体市场。
+           - "segment": 细分市场，只能选择"SUV", "Sedan"之一。如果情报未提及，请强制为其分配一个主推的细分市场。
+
+        {self.VALIDATION_PROMPT}
 
         待分析情报集合：
         {content}
@@ -500,6 +527,8 @@ class AIService:
         - "location": 风险发生地。
         - "impact_score": 0-100 (越严重分越高)。
 
+        {self.VALIDATION_PROMPT}
+
         待分析情报集合：
         {content}
 
@@ -516,6 +545,8 @@ class AIService:
         - "range": 续航里程 (只需数值，如 "750")。
         - "power": 峰值功率 (如 "495kW")。
         - "tech": 核心智驾/平台技术 (如 "Orin-X", "800V")。
+
+        {self.VALIDATION_PROMPT}
 
         待分析情报集合：
         {content}
@@ -540,6 +571,8 @@ class AIService:
         - "price": 预估价格区间 (如 "25-30万")。
         - "impact_score": 0-100 (市场关注度/热度)。
 
+        {self.VALIDATION_PROMPT}
+
         待分析情报集合：
         {content}
 
@@ -554,6 +587,8 @@ class AIService:
         - "lead_time": 交付周期 (如 "52周", "无库存")。
         - "stress": 0-100 压力值 (数值越大表示越短缺)。
         - "parts": 涉及的关键零部件名称 (如 "逆变器芯片", "车身控制器")。
+
+        {self.VALIDATION_PROMPT}
 
         待分析情报集合：
         {content}
@@ -572,6 +607,8 @@ class AIService:
         - "transit": 运输时长参考 (如 "35天", "12天")。
         - "sentiment": -1.0 到 1.0 (涨价为负)。
 
+        {self.VALIDATION_PROMPT}
+
         待分析情报集合：
         {content}
 
@@ -589,6 +626,8 @@ class AIService:
         - "date": 关键日期 (YYYY-MM-DD)。
         - "title_brief": 极简法规名称。
 
+        {self.VALIDATION_PROMPT}
+
         待分析情报集合：
         {content}
 
@@ -604,6 +643,8 @@ class AIService:
         - "ratio": 车桩比。
         - "fast_percent": 快充占比 (0-100)。
         - "stations": 核心站点列表 (包含 brand, count, type)。
+
+        {self.VALIDATION_PROMPT}
 
         待分析情报集合：
         {content}
@@ -621,6 +662,8 @@ class AIService:
            - "factors": 影响信心的核心因素列表 (如 ["降息预期", "油价上涨"])。
         2. sentiment: -1.0 到 1.0 (信心提升为正)。
 
+        {self.VALIDATION_PROMPT}
+
         待分析情报集合：
         {content}
 
@@ -637,6 +680,8 @@ class AIService:
         - "liability": 责任归属描述。
         - "speed": 最高限速。
         - "note": 核心条款摘要。
+
+        {self.VALIDATION_PROMPT}
 
         待分析情报集合：
         {content}
@@ -657,6 +702,8 @@ class AIService:
         - "connectivity": 连接分 (0-100)。
         - "quote": 一句话核心评价。
 
+        {self.VALIDATION_PROMPT}
+
         待分析情报集合：
         {content}
 
@@ -672,6 +719,8 @@ class AIService:
         - "density": 能量密度数值。
         - "type": 电池类型 ("LFP", "NCM", "Solid")。
         - "status": 当前状态。
+
+        {self.VALIDATION_PROMPT}
 
         待分析情报集合：
         {content}
@@ -689,6 +738,8 @@ class AIService:
         - "reduction": 减重效果。
         - "tech": 核心技术。
 
+        {self.VALIDATION_PROMPT}
+
         待分析情报集合：
         {content}
 
@@ -702,6 +753,8 @@ class AIService:
         - "brand": 企业名称。
         - "domain": 技术领域。
         - "intensity": 布局强度分值 (0-100)。
+
+        {self.VALIDATION_PROMPT}
 
         待分析情报集合：
         {content}
@@ -719,6 +772,8 @@ class AIService:
         - "rate": 提取率。
         - "trend": 趋势 ("up", "down")。
 
+        {self.VALIDATION_PROMPT}
+
         待分析情报集合：
         {content}
 
@@ -734,6 +789,8 @@ class AIService:
         - "status": 供应状态 ("Deficit", "Surplus", "Balanced")。
         - "level": 库存水位 (0-100)。
         - "trend": 库存趋势 ("up", "down")。
+
+        {self.VALIDATION_PROMPT}
 
         待分析情报集合：
         {content}
@@ -752,6 +809,8 @@ class AIService:
         - "eta": 到港日期 (YYYY-MM-DD)。
         - "utilization": 装载率。
 
+        {self.VALIDATION_PROMPT}
+
         待分析情报集合：
         {content}
 
@@ -766,6 +825,8 @@ class AIService:
         - "utilization": 利用率数值。
         - "status": 状态 ("Critical", "Tight", "Healthy")。
         - "client": 涉及客户。
+
+        {self.VALIDATION_PROMPT}
 
         待分析情报集合：
         {content}

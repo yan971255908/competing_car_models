@@ -9,7 +9,7 @@ class SpecializedScraper:
     """
 
     @staticmethod
-    async def _ai_driven_search(ai_service, panel_id: str, topic: str, keywords: list):
+    async def _ai_driven_search(ai_service, panel_id: str, topic: str, keywords: list, extra_prompt: str = ""):
         """
         核心 AI 搜索逻辑：使用传入的 ai_service 实例进行检索。
         """
@@ -22,6 +22,7 @@ class SpecializedScraper:
         请针对主题：'{search_query}' 在互联网上搜索最新的、属于当前时间点附近的真实情报。如果主题是关于未来某个时间点发生的事情，你可以根据主题进行搜索。
         并形成你的自己的判断和理解，重新组织语言进行输出，你自己的综合判断和理解单独做一条情报条目，来源媒体名和 URL 就用 AUTOPRISM 来代替。
         要求返回至少 10 条高质量、来源不同的情报条目，确保覆盖不同的品牌或地区。
+        {extra_prompt}
         格式为 JSON 数组：
         [
           {{
@@ -97,51 +98,13 @@ class SpecializedScraper:
 
     @staticmethod
     async def fetch_market_share(ai):
-        """
-        p13: 全球销量市占率大盘 (专项链路加固)
-        要求 AI 搜索并返回一个完整的品牌市占率矩阵。
-        """
-        prompt = """你是一个专业的汽车产业分析师。
-        请在全网搜索最新的、属于 2026 年或最近的“全球新能源汽车品牌市场份额”数据。
-
-        要求返回结果必须包含至少 10 个领先品牌（如比亚迪、特斯拉、丰田等）及其对应的百分比份额。
-
-        请以 JSON 格式返回：
-        [
-          {
-            "title": "2026Q1 全球新能源汽车市场格局快报",
-            "source_name": "权威机构统计 (如 MarkLines/乘联会)",
-            "source_url": "https://stats.authority.com/auto-market-2026",
-            "content": "2026年第一季度，全球新能源汽车销量维持高速增长。比亚迪凭借...",
-            "metrics": {
-               "type": "market_share_matrix",
-               "data": [
-                 {"brand": "BYD", "share": 22.1, "growth": "+4.5%"},
-                 {"brand": "Tesla", "share": 18.5, "growth": "-1.2%"},
-                 {"brand": "Toyota", "share": 9.2, "growth": "+12.0%"},
-                 {"brand": "Geely", "share": 7.8, "growth": "+6.3%"},
-                 {"brand": "VW Group", "share": 6.5, "growth": "+2.1%"}
-               ]
-            }
-          }
-        ]
-        """
-        try:
-            ai_items = await ai._call_ai(prompt)
-            if not isinstance(ai_items, list): ai_items = []
-        except Exception: ai_items = []
-
-        results = []
-        for item in ai_items:
-            results.append(RawIntelligence(
-                title=item.get("title", "全球销量市占率大盘更新"),
-                source_name=item.get("source_name", "AI_Matrix_Scanner"),
-                source_url=item.get("source_url", "https://ai-search.internal/p13"),
-                raw_content=item.get("content", "正在解读市场份额详细矩阵..."),
-                target_panel_ids=["p13"],
-                status=IntelligenceStatus.PENDING_AI
-            ))
-        return results
+        return await SpecializedScraper._ai_driven_search(
+            ai, 
+            "p13", 
+            "全球乘用车品牌销量年度排名", 
+            ["市占率", "销量战报", "市场格局", "中国市场", "欧洲市场", "美国市场", "SUV", "Sedan"],
+            extra_prompt="对于市占率的需求，一定要涵盖中国，美国，欧洲的数据，并且每个地区都要有SUV和Sedan的数据。"
+        )
 
     @staticmethod
     async def fetch_supply_chain_risks(ai):

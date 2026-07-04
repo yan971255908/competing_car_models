@@ -102,4 +102,12 @@ AutoPrism/
 ```
 
 ---
+
+## ☕️ 赞赏与支持 (Support)
+
+如果这个项目对你有帮助，欢迎通过微信赞赏码请我喝杯咖啡！你的支持是我持续开源和更新的动力。
+
+<img src="./assets/wechat-reward.jpg" alt="WeChat Reward" width="300" />
+
+---
 *AutoPrism - Turning Chaos Into Clarity.*
