@@ -4,6 +4,19 @@
 
 AutoPrism 是一款专为汽车产业与投资领域打造的**实时产业情报与全局数据看板**。
 
+<div align="center">
+  <img src="assets/main.jpg" alt="AutoPrism 全局指挥中心概览" width="100%">
+  <br>
+  <em>AutoPrism 全局指挥中心概览</em>
+</div>
+<br>
+<div align="center">
+  <img src="assets/data-panel.jpg" alt="AutoPrism 数据面板与 AI 洞察流" width="100%">
+  <br>
+  <em>AutoPrism 结构化数据大盘与 AI 洞察流</em>
+</div>
+<br>
+
 系统的核心护城河不在于“信息获取的数量”，而在于**“极致的结构化和降噪能力”**。AutoPrism 能够快速将全球新闻、供应链异动和竞品参数转化为直观的 3D 地图光柱、2D 战术热力图以及关键决策点，直击企业高管与投研机构的核心痛点。
 
 ---
