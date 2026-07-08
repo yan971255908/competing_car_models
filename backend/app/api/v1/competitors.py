@@ -59,6 +59,14 @@ def vehicle_to_dict(vehicle: VehicleModel, include_relations: bool = False) -> d
         "last_updated": dt(vehicle.last_updated),
     }
     if include_relations:
+        evidence_items = vehicle.evidence_items or []
+        technologies = []
+        seen_technology_ids = set()
+        for evidence in evidence_items:
+            if evidence.technology and evidence.technology.id not in seen_technology_ids:
+                seen_technology_ids.add(evidence.technology.id)
+                technologies.append(technology_to_dict(evidence.technology))
+
         data["variants"] = [
             {
                 "id": str(v.id),
@@ -70,7 +78,8 @@ def vehicle_to_dict(vehicle: VehicleModel, include_relations: bool = False) -> d
             }
             for v in (vehicle.variants or [])
         ]
-        data["evidence"] = [evidence_to_dict(e) for e in (vehicle.evidence_items or [])]
+        data["technologies"] = technologies
+        data["evidence"] = [evidence_to_dict(e) for e in evidence_items]
     return data
 
 
@@ -149,6 +158,7 @@ async def list_technologies(db: AsyncSession = Depends(get_db)):
 async def list_evidence(
     vehicle_id: Optional[uuid.UUID] = None,
     technology_id: Optional[uuid.UUID] = None,
+    source_type: Optional[SourceDocumentType] = None,
     db: AsyncSession = Depends(get_db),
 ):
     await ensure_competitor_schema(db)
@@ -161,6 +171,8 @@ async def list_evidence(
         stmt = stmt.where(Evidence.vehicle_id == vehicle_id)
     if technology_id:
         stmt = stmt.where(Evidence.technology_id == technology_id)
+    if source_type:
+        stmt = stmt.join(SourceDocument).where(SourceDocument.source_type == source_type)
     result = await db.execute(stmt)
     return [evidence_to_dict(item) for item in result.scalars().all()]
 

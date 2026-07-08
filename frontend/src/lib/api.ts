@@ -260,7 +260,14 @@ export const competitors = {
 
   technologies: async (...args: any[]) => request('/competitors/technologies'),
 
-  evidence: async (...args: any[]) => request('/competitors/evidence'),
+  evidence: async (filters: any = {}, ...args: any[]) => {
+    const query = new URLSearchParams();
+    if (filters.vehicle_id) query.set('vehicle_id', filters.vehicle_id);
+    if (filters.technology_id) query.set('technology_id', filters.technology_id);
+    if (filters.source_type) query.set('source_type', filters.source_type);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return request(`/competitors/evidence${suffix}`);
+  },
 
   seed: async (...args: any[]) => request('/competitors/seed', {
     method: 'POST',
