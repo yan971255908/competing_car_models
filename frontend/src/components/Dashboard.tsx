@@ -8,6 +8,7 @@ import { Panel } from '@/components/panels/Panel';
 import { SettingsModal } from '@/components/panels/SettingsModal';
 import { IntelligenceReader } from '@/components/panels/IntelligenceReader';
 import { InsightsStream } from '@/components/panels/InsightsStream';
+import { CompetitorLibrary } from '@/components/CompetitorLibrary';
 
 const Dashboard: React.FC = () => {
 	const [mapMode, setMapMode] = useState<'globe' | 'deckgl'>('globe');
@@ -157,8 +158,8 @@ const Dashboard: React.FC = () => {
 		return `每 ${value} 分钟`;
 	};
 
-	const roles = ['全量情报', '宏观决策', '战略与产品', '供应链与采购'];
-	const visiblePanels = (panels || []).filter(p => activeRole === '全量情报' || p.role === activeRole);
+	const roles = ['全量情报', '宏观决策', '战略与产品', '供应链与采购', '竞品库'];
+	const visiblePanels = (panels || []).filter(p => activeRole !== '竞品库' && (activeRole === '全量情报' || p.role === activeRole));
 
 	const getFeedForPanel = (panelId: string, sourceId?: string) => {
 		if (sourceId && feeds.has(sourceId)) return feeds.get(sourceId);
@@ -353,7 +354,9 @@ const Dashboard: React.FC = () => {
 
 					{/* Row 3: Intelligence Panels Grid */}
 					<div className="w-full">
-						{(isPanelsLoading || isFeedsLoading) ? (
+						{activeRole === '竞品库' ? (
+							<CompetitorLibrary />
+						) : (isPanelsLoading || isFeedsLoading) ? (
 							<div className="w-full h-40 flex items-center justify-center">
 								<Loader2 size={32} className="text-violet-500 animate-spin" />
 							</div>
@@ -465,3 +468,4 @@ const Dashboard: React.FC = () => {
 };
 
 export default Dashboard;
+

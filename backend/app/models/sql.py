@@ -30,6 +30,52 @@ class IntelligenceStatus(str, enum.Enum):
     IGNORED_NOISE = "IGNORED_NOISE"
 
 
+
+
+class SourceDocumentType(str, enum.Enum):
+    EXCEL = "excel"
+    PRESS_RELEASE = "press_release"
+    OFFICIAL_SITE = "official_site"
+    WEBPAGE = "webpage"
+    TRANSCRIPT = "transcript"
+    MANUAL = "manual"
+
+
+class TechnologyCategory(str, enum.Enum):
+    POWER = "power"
+    CHASSIS = "chassis"
+    ADAS = "adas"
+    COCKPIT = "cockpit"
+    BATTERY = "battery"
+    EE_ARCHITECTURE = "ee_architecture"
+    BODY = "body"
+    OTHER = "other"
+
+
+class TechnologyMaturityLevel(str, enum.Enum):
+    CONCEPT = "concept"
+    ANNOUNCED = "announced"
+    MASS_PRODUCTION = "mass_production"
+
+
+class SourceDocument(Base):
+    """竞品库来源文档: 发布会、Excel、网页、转写文本等原始资料。"""
+    __tablename__ = "source_documents"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    source_type: Mapped[SourceDocumentType] = mapped_column(Enum(SourceDocumentType), nullable=False, index=True)
+    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    file_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    evidence_items: Mapped[List["Evidence"]] = relationship(back_populates="source_document")
+
+    __table_args__ = (
+        Index("idx_source_document_created", "created_at"),
+    )
+
 class RawIntelligence(Base):
     """脏数据接收池: 存放抓取回来的全网未结构化数据"""
     __tablename__ = "raw_intelligence"
@@ -136,6 +182,9 @@ class VehicleModel(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     brand_name: Mapped[str] = mapped_column(String(100), nullable=False)
     model_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    energy_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    market_segment: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    launch_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     base_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     
     # Flexible specs schema to handle rapid industry evolution
@@ -143,11 +192,92 @@ class VehicleModel(Base):
     
     last_updated: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
+    variants: Mapped[List["VehicleVariant"]] = relationship(back_populates="vehicle", cascade="all, delete-orphan")
+    evidence_items: Mapped[List["Evidence"]] = relationship(back_populates="vehicle")
+
     __table_args__ = (
         Index("idx_vehicle_brand", "brand_name"),
         Index("idx_vehicle_specs", "specs", postgresql_using="gin"),
     )
 
+
+
+
+class VehicleVariant(Base):
+    """竞品库车型版本/配置款。"""
+    __tablename__ = "vehicle_variants"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("vehicle_models.id", ondelete="CASCADE"), nullable=False)
+    variant_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    config: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    vehicle: Mapped["VehicleModel"] = relationship(back_populates="variants")
+
+    __table_args__ = (
+        Index("idx_vehicle_variant_vehicle", "vehicle_id"),
+    )
+
+
+class TechnologyPoint(Base):
+    """竞品库技术点。"""
+    __tablename__ = "technology_points"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    category: Mapped[TechnologyCategory] = mapped_column(Enum(TechnologyCategory), default=TechnologyCategory.OTHER, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    maturity_level: Mapped[TechnologyMaturityLevel] = mapped_column(
+        Enum(TechnologyMaturityLevel),
+        default=TechnologyMaturityLevel.CONCEPT,
+        index=True,
+    )
+    tags: Mapped[List[str]] = mapped_column(JSONB, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    evidence_items: Mapped[List["Evidence"]] = relationship(back_populates="technology")
+
+    __table_args__ = (
+        Index("idx_technology_tags", "tags", postgresql_using="gin"),
+    )
+
+
+class Evidence(Base):
+    """竞品库证据链: 绑定来源文档、车型和技术点。"""
+    __tablename__ = "evidence"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source_document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("source_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    vehicle_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("vehicle_models.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    technology_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("technology_points.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    evidence_text: Mapped[str] = mapped_column(Text, nullable=False)
+    page_or_time: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.8)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    source_document: Mapped["SourceDocument"] = relationship(back_populates="evidence_items")
+    vehicle: Mapped[Optional["VehicleModel"]] = relationship(back_populates="evidence_items")
+    technology: Mapped[Optional["TechnologyPoint"]] = relationship(back_populates="evidence_items")
+
+    __table_args__ = (
+        Index("idx_evidence_source", "source_document_id"),
+        Index("idx_evidence_vehicle", "vehicle_id"),
+        Index("idx_evidence_technology", "technology_id"),
+    )
 
 class MarketTimeSeries(Base):
     """宏观脉搏: 大宗商品、销量等时序数据"""
@@ -194,3 +324,5 @@ class StrategicInsight(Base):
         Index("idx_insight_role", "role"),
         Index("idx_insight_created", "created_at"),
     )
+
+
