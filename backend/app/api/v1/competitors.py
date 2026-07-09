@@ -2,7 +2,7 @@ import uuid
 from fastapi import File, UploadFile
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +19,7 @@ from app.models.sql import (
     VehicleModel,
     VehicleVariant,
 )
-from app.services.excel_import_service import build_preview, transform_rows
+from app.services.excel_import_service import build_preview, build_template, validate_and_transform_rows
 
 router = APIRouter()
 _schema_ready = False
@@ -390,6 +390,14 @@ async def get_evidence(evidence_id: uuid.UUID, db: AsyncSession = Depends(get_db
     if not item:
         raise HTTPException(status_code=404, detail="Evidence not found")
     return evidence_to_dict(item)
+@router.get("/import/excel/template")
+async def download_excel_template():
+    return Response(
+        content=build_template(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="competitor-import-template.xlsx"'},
+    )
+
 @router.post("/import/excel/preview")
 async def preview_excel_import(file: UploadFile = File(...)):
     file_name = file.filename or "competitor_import.xlsx"
@@ -413,13 +421,11 @@ async def confirm_excel_import(
         raise HTTPException(status_code=400, detail="没有可导入的原始数据")
     if not payload.final_mapping:
         raise HTTPException(status_code=400, detail="请确认最终字段映射")
-    transformed_rows, applied_mapping = transform_rows(
+    transformed_rows, applied_mapping, validation_errors = validate_and_transform_rows(
         payload.raw_headers,
         payload.raw_rows,
         payload.final_mapping,
     )
-    if not transformed_rows:
-        raise HTTPException(status_code=400, detail="当前字段映射没有产生可导入数据")
     rows = [ExcelImportRow(**row) for row in transformed_rows]
 
     vehicles = (await db.execute(select(VehicleModel))).scalars().all()
@@ -539,8 +545,15 @@ async def confirm_excel_import(
         "status": "ok",
         "file_name": payload.file_name,
         "applied_mapping": applied_mapping,
-        "created": created,
+        "created_vehicles": created["vehicles"],
+        "created_variants": created["variants"],
+        "created_technologies": created["technologies"],
+        "created_evidence": created["evidence"],
         "skipped_duplicates": skipped,
+        "skipped_invalid_rows": len(validation_errors),
+        "errors": validation_errors,
+        # Compatibility with the v0.3 result panel.
+        "created": created,
     }
 
 

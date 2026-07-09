@@ -3,7 +3,7 @@ import re
 from typing import Any, Optional
 
 from fastapi import HTTPException
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 from app.models.sql import SourceDocumentType, TechnologyCategory, TechnologyMaturityLevel
 
@@ -25,6 +25,12 @@ SUPPORTED_FIELDS = [
     {"key": "confidence", "label": "置信度", "group": "证据"},
 ]
 SUPPORTED_FIELD_KEYS = {item["key"] for item in SUPPORTED_FIELDS}
+TEMPLATE_HEADERS = [item["label"] for item in SUPPORTED_FIELDS]
+TEMPLATE_SAMPLE = [
+    "示例品牌", "示例车型", "高配版", "纯电", "中型车", 2026, 25.88,
+    "800V 高压平台", "电池", "高压快充技术示例", "量产",
+    "示例车型采用 800V 高压快充平台。", "excel", "配置表第2行", 0.9,
+]
 FIELD_ALIASES = {
     "brand_name": ("品牌", "厂商", "车企", "品牌名称", "brand", "brand_name"),
     "model_name": ("车型", "车系", "车型名称", "车款名称", "竞品车型", "车辆名称", "model", "model_name"),
@@ -160,33 +166,95 @@ def parse_mapped_row(row_number: int, raw_row: dict[str, Any], mapping: dict[str
     }
 
 
+def validate_and_transform_rows(
+    raw_headers: list[str],
+    raw_rows: list[dict[str, Any]],
+    final_mapping: dict[str, Optional[str]],
+    enforce_required: bool = True,
+) -> tuple[list[dict[str, Any]], dict[str, str], list[dict[str, Any]]]:
+    mapping = validate_final_mapping(raw_headers, final_mapping)
+    missing = get_missing_required_fields(mapping)
+    if enforce_required and "model_name" in missing:
+        raise HTTPException(status_code=400, detail="缺少车型字段，无法导入车型数据")
+
+    valid_rows = []
+    validation_errors = []
+    mapped_fields = set(mapping.values())
+    vehicle_fields = VEHICLE_AUXILIARY_FIELDS | {"model_name"}
+    for position, raw_row in enumerate(raw_rows, start=2):
+        row_number = int(raw_row.get("__row_number__") or position)
+        values = {field: raw_row.get(header) for header, field in mapping.items()}
+        errors = []
+        vehicle_intent = any(clean_text(values.get(field)) for field in vehicle_fields)
+        if vehicle_intent and not clean_text(values.get("model_name")):
+            errors.append("车型相关字段存在数据，但车型不能为空")
+
+        price_value = values.get("base_price")
+        if clean_text(price_value) and parse_float(price_value) is None:
+            errors.append("指导价必须能转换为数字")
+
+        year_value = values.get("launch_year")
+        if clean_text(year_value):
+            parsed_year = parse_float(year_value)
+            if parsed_year is None or not parsed_year.is_integer():
+                errors.append("上市年份必须能转换为整数")
+
+        confidence_value = values.get("confidence")
+        if clean_text(confidence_value):
+            parsed_confidence = parse_float(confidence_value)
+            if parsed_confidence is None or not 0 <= parsed_confidence <= 1:
+                errors.append("置信度必须是 0 到 1 之间的数字")
+
+        parsed = parse_mapped_row(row_number, raw_row, mapping)
+        has_entity = bool(parsed["model_name"] or parsed["technology_name"] or parsed["evidence_text"])
+        if not has_entity:
+            errors.append("该行没有可导入的车型、技术点或证据")
+
+        if errors:
+            validation_errors.append({
+                "row_number": row_number,
+                "errors": errors,
+                "raw_data": {header: raw_row.get(header) for header in raw_headers if header},
+            })
+        else:
+            valid_rows.append(parsed)
+    return valid_rows, mapping, validation_errors
+
+
 def transform_rows(
     raw_headers: list[str],
     raw_rows: list[dict[str, Any]],
     final_mapping: dict[str, Optional[str]],
     enforce_required: bool = True,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
-    mapping = validate_final_mapping(raw_headers, final_mapping)
-    missing = get_missing_required_fields(mapping)
-    if enforce_required and "model_name" in missing:
-        raise HTTPException(status_code=400, detail="缺少车型字段，无法导入车型数据")
-    if enforce_required and "technology_name" in missing:
-        raise HTTPException(status_code=400, detail="缺少技术点名称，无法导入技术点数据")
-    rows = []
-    for position, raw_row in enumerate(raw_rows, start=2):
-        row_number = int(raw_row.get("__row_number__") or position)
-        parsed = parse_mapped_row(row_number, raw_row, mapping)
-        if parsed["model_name"] or parsed["technology_name"] or parsed["evidence_text"]:
-            rows.append(parsed)
+    rows, mapping, _ = validate_and_transform_rows(
+        raw_headers, raw_rows, final_mapping, enforce_required=enforce_required,
+    )
     return rows, mapping
-
 
 def summarize_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
     vehicles = {((row["brand_name"] or "未填写品牌").casefold(), row["model_name"].casefold()) for row in rows if row["model_name"]}
     technologies = {(row["technology_name"].casefold(), row["technology_category"]) for row in rows if row["technology_name"]}
+    variants = {(row["brand_name"] or "未填写品牌", row["model_name"], row["variant_name"]) for row in rows if row["model_name"] and row["variant_name"]}
     evidence = {row["evidence_text"] for row in rows if row["evidence_text"]}
-    return {"row_count": len(rows), "vehicle_count": len(vehicles), "technology_count": len(technologies), "evidence_count": len(evidence)}
+    return {"row_count": len(rows), "vehicle_count": len(vehicles), "variant_count": len(variants), "technology_count": len(technologies), "evidence_count": len(evidence)}
 
+
+def build_template() -> bytes:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "竞品导入模板"
+    worksheet.append(TEMPLATE_HEADERS)
+    worksheet.append(TEMPLATE_SAMPLE)
+    worksheet.freeze_panes = "A2"
+    for cell in worksheet[1]:
+        cell.font = cell.font.copy(bold=True, color="FFFFFF")
+        cell.fill = cell.fill.copy(fill_type="solid", fgColor="1F4E78")
+    for index, header in enumerate(TEMPLATE_HEADERS, start=1):
+        worksheet.column_dimensions[worksheet.cell(1, index).column_letter].width = max(12, min(32, len(header) * 2 + 4))
+    output = io.BytesIO()
+    workbook.save(output)
+    return output.getvalue()
 
 def build_preview(content: bytes, file_name: str) -> dict[str, Any]:
     try:
@@ -209,13 +277,18 @@ def build_preview(content: bytes, file_name: str) -> dict[str, Any]:
         raw_row = {header: values[index] if index < len(values) else None for index, header in enumerate(raw_headers) if header}
         raw_row["__row_number__"] = row_number
         raw_rows.append(raw_row)
-    transformed_rows, _ = transform_rows(raw_headers, raw_rows, auto_mapping, enforce_required=False)
+    transformed_rows, _, validation_errors = validate_and_transform_rows(
+        raw_headers, raw_rows, auto_mapping, enforce_required=False,
+    )
     missing = get_missing_required_fields(auto_mapping)
     return {
         "file_name": file_name, "sheet_name": worksheet.title,
         "raw_headers": raw_headers, "auto_mapping": auto_mapping,
         "unmapped_headers": [header for header in raw_headers if header and header not in auto_mapping],
         "supported_fields": SUPPORTED_FIELDS, "missing_required_fields": missing,
-        "preview_rows": raw_rows[:20], "raw_rows": raw_rows, "summary": summarize_rows(transformed_rows),
+        "preview_rows": raw_rows[:20], "raw_rows": raw_rows,
+        "validation_errors": validation_errors,
+        "valid_rows_count": len(transformed_rows), "invalid_rows_count": len(validation_errors),
+        "summary": summarize_rows(transformed_rows),
         "headers": raw_headers, "field_mapping": auto_mapping, "missing_fields": missing, "rows": transformed_rows,
     }

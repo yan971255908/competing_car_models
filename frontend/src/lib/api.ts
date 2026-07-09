@@ -296,6 +296,19 @@ export const competitors = {
     body: JSON.stringify(payload),
   }),
 
+  downloadExcelTemplate: async (...args: any[]) => {
+    const response = await fetch(`${API_BASE_URL}/competitors/import/excel/template`);
+    if (!response.ok) throw new Error(`模板下载失败: ${response.status}`);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'competitor-import-template.xlsx';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  },
   previewExcel: async (file: File, ...args: any[]) => {
     const formData = new FormData();
     formData.append('file', file);

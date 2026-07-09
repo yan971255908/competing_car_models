@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowRightLeft, Database, Edit3, FileText, Filter, Layers, Loader2, Plus, RefreshCw, Save, Search, ShieldCheck, SlidersHorizontal, X, Wrench } from 'lucide-react';
-import { FileSpreadsheet } from 'lucide-react';
+import { Download, FileSpreadsheet } from 'lucide-react';
 import { Button, GlassCard } from '@/components/ui';
 import { competitors } from '@/lib/api';
 
@@ -97,18 +97,34 @@ function ExcelImportModal({ onClose, onImported }: { onClose: () => void; onImpo
     ...(technologyAuxiliary.some((field) => mappedFields.has(field)) && !mappedFields.has('technology_name') ? ['technology_name'] : []),
   ];
   const missingLabels: Record<string, string> = { model_name: '车型', technology_name: '技术点名称' };
+  const hasBlockingMissingField = missingRequiredFields.includes('model_name');
   const unmappedHeaders = (preview?.raw_headers || []).filter((header: string) => header && !finalMapping[header]);
   const headerFor = (field: string) => Object.keys(finalMapping).find((header) => finalMapping[header] === field);
   const mappedValue = (row: any, field: string) => { const header = headerFor(field); return header ? row[header] : null; };
-  const mappingSummary = useMemo(() => {
+  const qualityReport = useMemo(() => {
     const rows = preview?.raw_rows || [];
-    const vehicles = new Set(rows.map((row: any) => { const model = mappedValue(row, 'model_name'); return model ? `${mappedValue(row, 'brand_name') || '未填写品牌'}::${model}` : ''; }).filter(Boolean));
-    const technologies = new Set(rows.map((row: any) => { const name = mappedValue(row, 'technology_name'); return name ? `${name}::${mappedValue(row, 'technology_category') || 'other'}` : ''; }).filter(Boolean));
-    const evidenceItems = new Set(rows.map((row: any) => mappedValue(row, 'evidence_text')).filter(Boolean));
-    return { row_count: rows.length, vehicle_count: vehicles.size, technology_count: technologies.size, evidence_count: evidenceItems.size };
+    const validRows: any[] = [];
+    const validationErrors: any[] = [];
+    const parseNumber = (value: any) => { const match = String(value ?? '').replace(/,/g, '').match(/-?\d+(?:\.\d+)?/); return match ? Number(match[0]) : null; };
+    rows.forEach((row: any, index: number) => {
+      const errors: string[] = [];
+      const vehicleValues = vehicleAuxiliary.concat('model_name').map((field) => mappedValue(row, field));
+      if (vehicleValues.some((value) => String(value ?? '').trim()) && !String(mappedValue(row, 'model_name') ?? '').trim()) errors.push('车型相关字段存在数据，但车型不能为空');
+      const price = mappedValue(row, 'base_price'); if (String(price ?? '').trim() && parseNumber(price) === null) errors.push('指导价必须能转换为数字');
+      const year = mappedValue(row, 'launch_year'); const parsedYear = parseNumber(year); if (String(year ?? '').trim() && (parsedYear === null || !Number.isInteger(parsedYear))) errors.push('上市年份必须能转换为整数');
+      const confidence = mappedValue(row, 'confidence'); const parsedConfidence = parseNumber(confidence); if (String(confidence ?? '').trim() && (parsedConfidence === null || parsedConfidence < 0 || parsedConfidence > 1)) errors.push('置信度必须是 0 到 1 之间的数字');
+      const hasEntity = ['model_name', 'technology_name', 'evidence_text'].some((field) => String(mappedValue(row, field) ?? '').trim());
+      if (!hasEntity) errors.push('该行没有可导入的车型、技术点或证据');
+      if (errors.length) validationErrors.push({ row_number: row.__row_number__ || index + 2, errors, raw_data: row }); else validRows.push(row);
+    });
+    const vehicles = new Set(validRows.map((row: any) => { const model = mappedValue(row, 'model_name'); return model ? `${mappedValue(row, 'brand_name') || '未填写品牌'}::${model}` : ''; }).filter(Boolean));
+    const variants = new Set(validRows.map((row: any) => { const model = mappedValue(row, 'model_name'); const variant = mappedValue(row, 'variant_name'); return model && variant ? `${mappedValue(row, 'brand_name') || '未填写品牌'}::${model}::${variant}` : ''; }).filter(Boolean));
+    const technologies = new Set(validRows.map((row: any) => { const name = mappedValue(row, 'technology_name'); return name ? `${name}::${mappedValue(row, 'technology_category') || 'other'}` : ''; }).filter(Boolean));
+    const evidenceItems = new Set(validRows.map((row: any) => mappedValue(row, 'evidence_text')).filter(Boolean));
+    return { validRows, validationErrors, summary: { vehicle_count: vehicles.size, variant_count: variants.size, technology_count: technologies.size, evidence_count: evidenceItems.size } };
   }, [preview, finalMapping]);
   const confirmImport = async () => {
-    if (!preview || missingRequiredFields.length) return;
+    if (!preview || hasBlockingMissingField) return;
     if (!Object.values(finalMapping).some(Boolean)) return setError('请至少映射一个标准字段');
     setIsImporting(true); setError('');
     try {
@@ -124,6 +140,8 @@ function ExcelImportModal({ onClose, onImported }: { onClose: () => void; onImpo
     } catch (err: any) { setError(err?.message || 'Excel 导入失败'); }
     finally { setIsImporting(false); }
   };
+  const skippedDuplicateCount = result ? Object.values(result.skipped_duplicates || {}).reduce((sum: number, value: any) => sum + Number(value || 0), 0) : 0;
+
 
   return <div className="fixed inset-0 z-[105] bg-black/65 backdrop-blur-sm flex items-center justify-center p-4">
     <GlassCard className="w-full max-w-[1080px] max-h-[90vh] border-white/10 shadow-2xl overflow-hidden flex flex-col">
@@ -132,14 +150,15 @@ function ExcelImportModal({ onClose, onImported }: { onClose: () => void; onImpo
         <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center"><label className="flex-1 border border-dashed border-white/15 bg-white/[0.03] rounded px-4 py-3 cursor-pointer hover:border-emerald-400/40"><input type="file" accept=".xlsx" className="hidden" onChange={(event) => { setFile(event.target.files?.[0] || null); setPreview(null); setResult(null); setError(''); }} /><span className="text-xs text-white/65">{file?.name || '选择 .xlsx 文件'}</span></label><Button size="sm" onClick={parseFile} disabled={!file || isParsing}>{isParsing ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}解析预览</Button></div>
         {error && <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded px-3 py-2">{error}</div>}
         {preview && <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3"><StatCard label="有效行" value={mappingSummary.row_count} icon={<FileSpreadsheet size={16} />} /><StatCard label="车型" value={mappingSummary.vehicle_count} icon={<Layers size={16} />} /><StatCard label="技术点" value={mappingSummary.technology_count} icon={<Wrench size={16} />} /><StatCard label="证据" value={mappingSummary.evidence_count} icon={<FileText size={16} />} /></div>
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3"><StatCard label="有效行" value={qualityReport.validRows.length} icon={<FileSpreadsheet size={16} />} /><StatCard label="错误行" value={qualityReport.validationErrors.length} icon={<FileText size={16} />} /><StatCard label="车型" value={qualityReport.summary.vehicle_count} icon={<Layers size={16} />} /><StatCard label="版本" value={qualityReport.summary.variant_count} icon={<Layers size={16} />} /><StatCard label="技术点" value={qualityReport.summary.technology_count} icon={<Wrench size={16} />} /><StatCard label="证据" value={qualityReport.summary.evidence_count} icon={<FileText size={16} />} /></div>
           <div className="border border-white/10 rounded overflow-hidden"><div className="px-4 py-3 bg-white/[0.03] flex items-center"><div><div className="text-[11px] font-bold text-white/65">字段映射确认 · {preview.sheet_name}</div><div className="text-[9px] text-white/30 mt-1">左侧为 Excel 原始列，右侧选择系统标准字段</div></div><button onClick={() => setFinalMapping(preview.auto_mapping || {})} className="ml-auto text-[10px] text-cyan-200 hover:text-cyan-100">恢复自动识别</button></div><div className="divide-y divide-white/5">{preview.raw_headers.filter(Boolean).map((header: string) => <div key={header} className="grid grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-center gap-3 px-4 py-2.5"><div className="text-xs text-white/75 truncate" title={header}>{header}</div><div className="text-white/20 text-center">→</div><select aria-label={`${header} 字段映射`} value={finalMapping[header] || ''} onChange={(event) => updateMapping(header, event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white"><option value="">忽略</option>{preview.supported_fields.map((field: any) => <option key={field.key} value={field.key}>{field.group} · {field.label}</option>)}</select></div>)}</div></div>
           {unmappedHeaders.length > 0 && <div className="text-xs text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded px-3 py-2">当前忽略字段：{unmappedHeaders.join('、')}</div>}
           {missingRequiredFields.length > 0 && <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded px-3 py-2">缺失关键字段：{missingRequiredFields.map((field) => missingLabels[field]).join('、')}。{missingRequiredFields.includes('model_name') ? '缺少车型字段，无法导入车型数据。' : ''}</div>}
+          {qualityReport.validationErrors.length > 0 && <div className="space-y-2"><div className="text-xs text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded px-3 py-2">存在错误行，系统将跳过错误行，仅导入有效数据。</div><div className="border border-rose-500/20 rounded overflow-hidden"><div className="px-3 py-2 bg-rose-500/10 text-[10px] font-bold text-rose-200">错误行详情</div><div className="max-h-[180px] overflow-y-auto custom-scrollbar divide-y divide-white/5">{qualityReport.validationErrors.slice(0, 20).map((item: any) => <div key={item.row_number} className="px-3 py-2 grid grid-cols-[56px_1fr] gap-3 text-[10px]"><span className="text-white/35 font-mono">第 {item.row_number} 行</span><div><div className="text-rose-200/80">{item.errors.join('；')}</div><div className="mt-1 text-white/25 font-mono break-all">{JSON.stringify(item.raw_data)}</div></div></div>)}</div></div></div>}
           <div className="border border-white/10 rounded overflow-x-auto"><table className="w-full min-w-[760px] text-left text-[10px]"><thead className="bg-white/5 text-white/45"><tr><th className="px-3 py-2">行</th>{preview.raw_headers.filter(Boolean).map((header: string) => <th key={header} className="px-3 py-2 max-w-[180px] truncate">{header}</th>)}</tr></thead><tbody className="divide-y divide-white/5">{preview.preview_rows.map((row: any) => <tr key={row.__row_number__}><td className="px-3 py-2 text-white/30 font-mono">{row.__row_number__}</td>{preview.raw_headers.filter(Boolean).map((header: string) => <td key={header} className="px-3 py-2 text-white/65 max-w-[220px] truncate">{row[header] ?? '-'}</td>)}</tr>)}</tbody></table>{preview.raw_rows.length > 20 && <div className="px-3 py-2 text-[10px] text-white/30">仅展示前 20 行，共 {preview.raw_rows.length} 行</div>}</div>
-          <div className="flex justify-end"><Button size="sm" onClick={confirmImport} disabled={isImporting || preview.raw_rows.length === 0 || missingRequiredFields.length > 0}>{isImporting ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}使用当前映射确认导入</Button></div>
+          <div className="flex justify-end"><Button size="sm" onClick={confirmImport} disabled={isImporting || preview.raw_rows.length === 0 || hasBlockingMissingField}>{isImporting ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}使用当前映射确认导入</Button></div>
         </>}
-        {result && <div className="border border-emerald-500/20 bg-emerald-500/10 rounded px-4 py-3 text-xs text-emerald-200">导入完成：新增车型 {result.created.vehicles}、版本 {result.created.variants}、技术点 {result.created.technologies}、证据 {result.created.evidence}。</div>}
+        {result && <div className="border border-emerald-500/20 bg-emerald-500/10 rounded px-4 py-3 text-xs text-emerald-200">导入完成：新增车型 {result.created_vehicles ?? result.created?.vehicles ?? 0}、版本 {result.created_variants ?? result.created?.variants ?? 0}、技术点 {result.created_technologies ?? result.created?.technologies ?? 0}、证据 {result.created_evidence ?? result.created?.evidence ?? 0}；重复跳过 {skippedDuplicateCount}，错误行跳过 {result.skipped_invalid_rows ?? 0}。</div>}
       </div>
     </GlassCard>
   </div>;
@@ -167,6 +186,7 @@ export const CompetitorLibrary: React.FC = () => {
   const loadData = async () => { setIsLoading(true); setError(null); try { const [vehicleRows, techRows, evidenceRows] = await Promise.all([competitors.vehicles(), competitors.technologies(), competitors.evidence()]); setVehicles(vehicleRows || []); setTechnologies(techRows || []); setEvidence(evidenceRows || []); } catch (err: any) { setError(err?.message || '竞品库数据加载失败'); } finally { setIsLoading(false); } };
   useEffect(() => { loadData(); }, []);
   const seedData = async () => { setIsSeeding(true); try { await competitors.seed(); await loadData(); } catch (err: any) { setError(err?.message || '示例数据写入失败'); } finally { setIsSeeding(false); } };
+  const downloadTemplate = async () => { try { await competitors.downloadExcelTemplate(); } catch (err: any) { setError(err?.message || '模板下载失败'); } };
   const openVehicleDetail = async (vehicle: any) => { setSelectedVehicleId(vehicle.id); setSelectedTechnologyId(''); setIsDetailLoading(true); try { setDetailVehicle(await competitors.vehicleDetail(vehicle.id)); } catch (err: any) { setError(err?.message || '车型详情加载失败'); } finally { setIsDetailLoading(false); } };
   const openEvidenceDetail = async (item: any) => { try { setDetailEvidence(await competitors.evidenceDetail(item.id)); } catch (err: any) { setError(err?.message || '证据详情加载失败'); } };
   const saveModal = async (payload: any) => { if (modal.type === 'vehicle') modal.initial ? await competitors.updateVehicle(modal.initial.id, payload) : await competitors.createVehicle(payload); if (modal.type === 'technology') modal.initial ? await competitors.updateTechnology(modal.initial.id, payload) : await competitors.createTechnology(payload); if (modal.type === 'evidence') await competitors.createEvidence(payload); setModal(null); await loadData(); };
@@ -186,7 +206,7 @@ export const CompetitorLibrary: React.FC = () => {
 
   return <div className="w-full relative">
     <div className="flex items-center justify-between mb-4 px-1"><div className="flex items-center gap-3"><div className="w-1 h-4 bg-cyan-400 rounded-full" /><h3 className="text-xs font-black text-white/50 tracking-[0.2em]">竞品库工作台</h3><span className="text-[10px] text-white/25">人工维护 / 搜索 / 对比</span></div><div className="flex items-center gap-2"><Button variant="ghost" size="sm" onClick={loadData} disabled={isLoading}><RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />刷新</Button><Button size="sm" onClick={seedData} disabled={isSeeding}>{isSeeding ? <Loader2 size={13} className="animate-spin" /> : <Database size={13} />}初始化示例数据</Button></div></div>
-    <GlassCard className="mb-4 px-4 py-3 border-white/10 flex flex-col md:flex-row md:items-center gap-3"><div className="flex items-center gap-3"><div className="w-9 h-9 rounded bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center"><FileSpreadsheet size={17} className="text-emerald-300" /></div><div><div className="text-xs font-bold text-white/75">Excel 配置表导入</div><div className="text-[10px] text-white/30 mt-0.5">上传后先预览字段与数据，确认后再写入竞品库</div></div></div><Button size="sm" className="md:ml-auto" onClick={() => setExcelImportOpen(true)}><FileSpreadsheet size={14} />Excel 导入</Button></GlassCard>
+    <GlassCard className="mb-4 px-4 py-3 border-white/10 flex flex-col md:flex-row md:items-center gap-3"><div className="flex items-center gap-3"><div className="w-9 h-9 rounded bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center"><FileSpreadsheet size={17} className="text-emerald-300" /></div><div><div className="text-xs font-bold text-white/75">Excel 配置表导入</div><div className="text-[10px] text-white/30 mt-0.5">上传后先预览字段与数据，确认后再写入竞品库</div></div></div><div className="md:ml-auto flex items-center gap-2"><Button variant="ghost" size="sm" onClick={downloadTemplate}><Download size={14} />下载标准模板</Button><Button size="sm" onClick={() => setExcelImportOpen(true)}><FileSpreadsheet size={14} />Excel 导入</Button></div></GlassCard>
     {error && <GlassCard className="mb-4 px-4 py-3 border border-rose-500/30 text-rose-300 text-xs">{error}</GlassCard>}
     {isLoading ? <div className="h-56 flex items-center justify-center"><Loader2 size={28} className="text-violet-500 animate-spin" /></div> : !hasData ? <EmptyState onSeed={seedData} isSeeding={isSeeding} /> : <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4"><StatCard label="车型数量" value={vehicles.length} icon={<Layers size={17} />} /><StatCard label="技术点数量" value={technologies.length} icon={<Wrench size={17} />} /><StatCard label="证据数量" value={evidence.length} icon={<FileText size={17} />} /></div>
