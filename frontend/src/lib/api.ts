@@ -256,9 +256,29 @@ export const tags = {
 export const competitors = {
   vehicles: async (...args: any[]) => request('/competitors/vehicles'),
 
+  createVehicle: async (payload: any, ...args: any[]) => request('/competitors/vehicles', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+
+  updateVehicle: async (id: string, payload: any, ...args: any[]) => request(`/competitors/vehicles/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  }),
+
   vehicleDetail: async (id: string, ...args: any[]) => request(`/competitors/vehicles/${encodeURIComponent(id)}`),
 
   technologies: async (...args: any[]) => request('/competitors/technologies'),
+
+  createTechnology: async (payload: any, ...args: any[]) => request('/competitors/technologies', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+
+  updateTechnology: async (id: string, payload: any, ...args: any[]) => request(`/competitors/technologies/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  }),
 
   evidence: async (filters: any = {}, ...args: any[]) => {
     const query = new URLSearchParams();
@@ -268,6 +288,13 @@ export const competitors = {
     const suffix = query.toString() ? `?${query.toString()}` : '';
     return request(`/competitors/evidence${suffix}`);
   },
+
+  evidenceDetail: async (id: string, ...args: any[]) => request(`/competitors/evidence/${encodeURIComponent(id)}`),
+
+  createEvidence: async (payload: any, ...args: any[]) => request('/competitors/evidence', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
 
   seed: async (...args: any[]) => request('/competitors/seed', {
     method: 'POST',

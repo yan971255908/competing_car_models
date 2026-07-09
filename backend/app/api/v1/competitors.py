@@ -2,6 +2,7 @@ import uuid
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -22,6 +23,33 @@ router = APIRouter()
 _schema_ready = False
 
 
+class VehiclePayload(BaseModel):
+    brand_name: str = ""
+    model_name: str
+    energy_type: Optional[str] = None
+    market_segment: Optional[str] = None
+    launch_year: Optional[int] = None
+    base_price: Optional[float] = None
+    specs: dict[str, Any] = Field(default_factory=dict)
+
+
+class TechnologyPayload(BaseModel):
+    name: str
+    category: TechnologyCategory = TechnologyCategory.OTHER
+    description: Optional[str] = None
+    maturity_level: TechnologyMaturityLevel = TechnologyMaturityLevel.CONCEPT
+    tags: list[str] = Field(default_factory=list)
+
+
+class EvidencePayload(BaseModel):
+    vehicle_id: Optional[uuid.UUID] = None
+    technology_id: Optional[uuid.UUID] = None
+    source_type: SourceDocumentType = SourceDocumentType.MANUAL
+    evidence_text: str
+    page_or_time: Optional[str] = None
+    confidence: float = 0.8
+
+
 async def ensure_competitor_schema(db: AsyncSession) -> None:
     """Create new competitor tables and add compatible columns to the legacy vehicle table."""
     global _schema_ready
@@ -38,6 +66,27 @@ async def ensure_competitor_schema(db: AsyncSession) -> None:
     _schema_ready = True
 
 
+
+def normalize_confidence(value: float) -> float:
+    if value > 1:
+        value = value / 100
+    return max(0.0, min(1.0, value))
+
+
+def validate_json_dict(value: Any, field_name: str) -> dict:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise HTTPException(status_code=400, detail=f"{field_name} must be a JSON object")
+    return value
+
+
+def validate_json_list(value: Any, field_name: str) -> list:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise HTTPException(status_code=400, detail=f"{field_name} must be a JSON array")
+    return value
 def dt(value):
     return value.isoformat() if value else None
 
@@ -133,6 +182,85 @@ async def list_vehicles(db: AsyncSession = Depends(get_db)):
     return [vehicle_to_dict(item) for item in result.scalars().all()]
 
 
+
+@router.post("/vehicles")
+async def create_vehicle(payload: VehiclePayload, db: AsyncSession = Depends(get_db)):
+    await ensure_competitor_schema(db)
+    if not payload.model_name.strip():
+        raise HTTPException(status_code=400, detail="model_name is required")
+
+    vehicle = VehicleModel(
+        brand_name=payload.brand_name.strip() or "未填写品牌",
+        model_name=payload.model_name.strip(),
+        energy_type=payload.energy_type,
+        market_segment=payload.market_segment,
+        launch_year=payload.launch_year,
+        base_price=payload.base_price,
+        specs=validate_json_dict(payload.specs, "specs"),
+    )
+    db.add(vehicle)
+    await db.commit()
+    await db.refresh(vehicle)
+    return vehicle_to_dict(vehicle)
+
+
+@router.put("/vehicles/{vehicle_id}")
+async def update_vehicle(vehicle_id: uuid.UUID, payload: VehiclePayload, db: AsyncSession = Depends(get_db)):
+    await ensure_competitor_schema(db)
+    result = await db.execute(select(VehicleModel).where(VehicleModel.id == vehicle_id))
+    vehicle = result.scalar_one_or_none()
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    if not payload.model_name.strip():
+        raise HTTPException(status_code=400, detail="model_name is required")
+
+    vehicle.brand_name = payload.brand_name.strip() or "未填写品牌"
+    vehicle.model_name = payload.model_name.strip()
+    vehicle.energy_type = payload.energy_type
+    vehicle.market_segment = payload.market_segment
+    vehicle.launch_year = payload.launch_year
+    vehicle.base_price = payload.base_price
+    vehicle.specs = validate_json_dict(payload.specs, "specs")
+    await db.commit()
+    await db.refresh(vehicle)
+    return vehicle_to_dict(vehicle)
+
+
+@router.post("/technologies")
+async def create_technology(payload: TechnologyPayload, db: AsyncSession = Depends(get_db)):
+    await ensure_competitor_schema(db)
+    if not payload.name.strip():
+        raise HTTPException(status_code=400, detail="name is required")
+    item = TechnologyPoint(
+        name=payload.name.strip(),
+        category=payload.category,
+        description=payload.description,
+        maturity_level=payload.maturity_level,
+        tags=validate_json_list(payload.tags, "tags"),
+    )
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    return technology_to_dict(item)
+
+
+@router.put("/technologies/{technology_id}")
+async def update_technology(technology_id: uuid.UUID, payload: TechnologyPayload, db: AsyncSession = Depends(get_db)):
+    await ensure_competitor_schema(db)
+    result = await db.execute(select(TechnologyPoint).where(TechnologyPoint.id == technology_id))
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Technology not found")
+    if not payload.name.strip():
+        raise HTTPException(status_code=400, detail="name is required")
+    item.name = payload.name.strip()
+    item.category = payload.category
+    item.description = payload.description
+    item.maturity_level = payload.maturity_level
+    item.tags = validate_json_list(payload.tags, "tags")
+    await db.commit()
+    await db.refresh(item)
+    return technology_to_dict(item)
 @router.get("/vehicles/{vehicle_id}")
 async def get_vehicle(vehicle_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     await ensure_competitor_schema(db)
@@ -177,6 +305,62 @@ async def list_evidence(
     return [evidence_to_dict(item) for item in result.scalars().all()]
 
 
+
+@router.post("/evidence")
+async def create_evidence(payload: EvidencePayload, db: AsyncSession = Depends(get_db)):
+    await ensure_competitor_schema(db)
+    if not payload.evidence_text.strip():
+        raise HTTPException(status_code=400, detail="evidence_text is required")
+
+    if payload.vehicle_id:
+        vehicle_result = await db.execute(select(VehicleModel).where(VehicleModel.id == payload.vehicle_id))
+        if not vehicle_result.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Vehicle not found")
+    if payload.technology_id:
+        tech_result = await db.execute(select(TechnologyPoint).where(TechnologyPoint.id == payload.technology_id))
+        if not tech_result.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Technology not found")
+
+    source_doc = SourceDocument(
+        title=f"人工维护证据 - {payload.source_type.value}",
+        source_type=payload.source_type,
+        raw_text=payload.evidence_text.strip(),
+        file_name="manual_evidence.txt" if payload.source_type == SourceDocumentType.MANUAL else None,
+    )
+    db.add(source_doc)
+    await db.flush()
+
+    item = Evidence(
+        source_document_id=source_doc.id,
+        vehicle_id=payload.vehicle_id,
+        technology_id=payload.technology_id,
+        evidence_text=payload.evidence_text.strip(),
+        page_or_time=payload.page_or_time,
+        confidence=normalize_confidence(payload.confidence),
+    )
+    db.add(item)
+    await db.commit()
+
+    result = await db.execute(
+        select(Evidence)
+        .options(selectinload(Evidence.source_document), selectinload(Evidence.vehicle), selectinload(Evidence.technology))
+        .where(Evidence.id == item.id)
+    )
+    return evidence_to_dict(result.scalar_one())
+
+
+@router.get("/evidence/{evidence_id}")
+async def get_evidence(evidence_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    await ensure_competitor_schema(db)
+    result = await db.execute(
+        select(Evidence)
+        .options(selectinload(Evidence.source_document), selectinload(Evidence.vehicle), selectinload(Evidence.technology))
+        .where(Evidence.id == evidence_id)
+    )
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+    return evidence_to_dict(item)
 @router.post("/seed")
 async def seed_competitors(db: AsyncSession = Depends(get_db)):
     await ensure_competitor_schema(db)
