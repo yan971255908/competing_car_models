@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowRightLeft, Database, Edit3, FileText, Filter, Layers, Loader2, Plus, RefreshCw, Save, Search, ShieldCheck, SlidersHorizontal, X, Wrench } from 'lucide-react';
+import { FileSpreadsheet } from 'lucide-react';
 import { Button, GlassCard } from '@/components/ui';
 import { competitors } from '@/lib/api';
 
@@ -60,6 +61,89 @@ function MaintenanceModal({ type, initial, vehicles, technologies, onClose, onSa
   return <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6"><GlassCard className="w-full max-w-[620px] border-white/10 shadow-2xl overflow-hidden"><div className="px-5 py-4 border-b border-white/10 flex items-center gap-3"><Plus size={17} className="text-cyan-300" /><div className="text-sm font-black text-white">{title}</div><button onClick={onClose} className="ml-auto p-2 rounded hover:bg-white/10 text-white/45"><X size={18} /></button></div><div className="p-5 space-y-4">{type === 'vehicle' && <><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><TextInput label="品牌" value={form.brand_name} onChange={(v: string) => set('brand_name', v)} /><TextInput label="车型名 *" value={form.model_name} onChange={(v: string) => set('model_name', v)} /><TextInput label="能源类型" value={form.energy_type} onChange={(v: string) => set('energy_type', v)} /><TextInput label="市场级别" value={form.market_segment} onChange={(v: string) => set('market_segment', v)} /><TextInput label="上市年份" type="number" value={form.launch_year} onChange={(v: string) => set('launch_year', v)} /><TextInput label="指导价（万元）" type="number" value={form.base_price} onChange={(v: string) => set('base_price', v)} /></div><TextArea label="specs JSON" mono value={form.specs} onChange={(v: string) => set('specs', v)} /></>}{type === 'technology' && <><TextInput label="技术点名称 *" value={form.name} onChange={(v: string) => set('name', v)} /><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><SelectInput label="类别" value={form.category} onChange={(v: string) => set('category', v)} options={categoryOptions} labels={categoryLabel} /><SelectInput label="成熟度" value={form.maturity_level} onChange={(v: string) => set('maturity_level', v)} options={maturityOptions} labels={maturityLabel} /></div><TextArea label="描述" value={form.description} onChange={(v: string) => set('description', v)} /><TextArea label="tags JSON" mono value={form.tags} onChange={(v: string) => set('tags', v)} /></>}{type === 'evidence' && <><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">关联车型<select value={form.vehicle_id} onChange={(e) => set('vehicle_id', e.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white"><option value="">不绑定车型</option>{vehicles.map((v: any) => <option key={v.id} value={v.id}>{getVehicleName(v)}</option>)}</select></label><label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">关联技术点<select value={form.technology_id} onChange={(e) => set('technology_id', e.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white"><option value="">不绑定技术点</option>{technologies.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label><SelectInput label="来源类型" value={form.source_type} onChange={(v: string) => set('source_type', v)} options={sourceTypeOptions} labels={sourceTypeLabel} /><TextInput label="confidence（0-1）" type="number" value={form.confidence} onChange={(v: string) => set('confidence', v)} /></div><TextInput label="页码/时间" value={form.page_or_time} onChange={(v: string) => set('page_or_time', v)} /><TextArea label="证据文本 *" value={form.evidence_text} onChange={(v: string) => set('evidence_text', v)} /></>}{error && <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded px-3 py-2">{error}</div>}<div className="flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={onClose}>取消</Button><Button size="sm" onClick={submit}><Save size={14} />保存</Button></div></div></GlassCard></div>;
 }
 
+function ExcelImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => Promise<void> }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<any | null>(null);
+  const [finalMapping, setFinalMapping] = useState<Record<string, string>>({});
+  const [result, setResult] = useState<any | null>(null);
+  const [isParsing, setIsParsing] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [error, setError] = useState('');
+
+  const parseFile = async () => {
+    if (!file) return setError('请先选择 .xlsx 文件');
+    setIsParsing(true); setError(''); setResult(null);
+    try {
+      const data = await competitors.previewExcel(file);
+      setPreview(data);
+      setFinalMapping(data.auto_mapping || {});
+    } catch (err: any) { setError(err?.message || 'Excel 解析失败'); }
+    finally { setIsParsing(false); }
+  };
+  const updateMapping = (header: string, field: string) => {
+    setFinalMapping((current) => {
+      const next = { ...current };
+      Object.keys(next).forEach((key) => { if (field && next[key] === field) next[key] = ''; });
+      next[header] = field;
+      return next;
+    });
+    setResult(null);
+  };
+  const mappedFields = new Set(Object.values(finalMapping).filter(Boolean));
+  const vehicleAuxiliary = ['brand_name', 'variant_name', 'energy_type', 'market_segment', 'launch_year', 'base_price'];
+  const technologyAuxiliary = ['technology_category', 'technology_description', 'maturity_level'];
+  const missingRequiredFields = [
+    ...(vehicleAuxiliary.some((field) => mappedFields.has(field)) && !mappedFields.has('model_name') ? ['model_name'] : []),
+    ...(technologyAuxiliary.some((field) => mappedFields.has(field)) && !mappedFields.has('technology_name') ? ['technology_name'] : []),
+  ];
+  const missingLabels: Record<string, string> = { model_name: '车型', technology_name: '技术点名称' };
+  const unmappedHeaders = (preview?.raw_headers || []).filter((header: string) => header && !finalMapping[header]);
+  const headerFor = (field: string) => Object.keys(finalMapping).find((header) => finalMapping[header] === field);
+  const mappedValue = (row: any, field: string) => { const header = headerFor(field); return header ? row[header] : null; };
+  const mappingSummary = useMemo(() => {
+    const rows = preview?.raw_rows || [];
+    const vehicles = new Set(rows.map((row: any) => { const model = mappedValue(row, 'model_name'); return model ? `${mappedValue(row, 'brand_name') || '未填写品牌'}::${model}` : ''; }).filter(Boolean));
+    const technologies = new Set(rows.map((row: any) => { const name = mappedValue(row, 'technology_name'); return name ? `${name}::${mappedValue(row, 'technology_category') || 'other'}` : ''; }).filter(Boolean));
+    const evidenceItems = new Set(rows.map((row: any) => mappedValue(row, 'evidence_text')).filter(Boolean));
+    return { row_count: rows.length, vehicle_count: vehicles.size, technology_count: technologies.size, evidence_count: evidenceItems.size };
+  }, [preview, finalMapping]);
+  const confirmImport = async () => {
+    if (!preview || missingRequiredFields.length) return;
+    if (!Object.values(finalMapping).some(Boolean)) return setError('请至少映射一个标准字段');
+    setIsImporting(true); setError('');
+    try {
+      const response = await competitors.confirmExcel({
+        file_name: preview.file_name,
+        sheet_name: preview.sheet_name,
+        raw_headers: preview.raw_headers,
+        raw_rows: preview.raw_rows,
+        final_mapping: finalMapping,
+      });
+      setResult(response);
+      await onImported();
+    } catch (err: any) { setError(err?.message || 'Excel 导入失败'); }
+    finally { setIsImporting(false); }
+  };
+
+  return <div className="fixed inset-0 z-[105] bg-black/65 backdrop-blur-sm flex items-center justify-center p-4">
+    <GlassCard className="w-full max-w-[1080px] max-h-[90vh] border-white/10 shadow-2xl overflow-hidden flex flex-col">
+      <div className="px-5 py-4 border-b border-white/10 flex items-center gap-3"><FileSpreadsheet size={18} className="text-emerald-300" /><div><div className="text-sm font-black text-white">Excel 配置表导入</div><div className="text-[10px] text-white/35 mt-0.5">自动识别 · 人工确认 · 确认后写入</div></div><button onClick={onClose} className="ml-auto p-2 rounded hover:bg-white/10 text-white/45"><X size={18} /></button></div>
+      <div className="p-5 overflow-y-auto custom-scrollbar space-y-4">
+        <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center"><label className="flex-1 border border-dashed border-white/15 bg-white/[0.03] rounded px-4 py-3 cursor-pointer hover:border-emerald-400/40"><input type="file" accept=".xlsx" className="hidden" onChange={(event) => { setFile(event.target.files?.[0] || null); setPreview(null); setResult(null); setError(''); }} /><span className="text-xs text-white/65">{file?.name || '选择 .xlsx 文件'}</span></label><Button size="sm" onClick={parseFile} disabled={!file || isParsing}>{isParsing ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}解析预览</Button></div>
+        {error && <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded px-3 py-2">{error}</div>}
+        {preview && <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3"><StatCard label="有效行" value={mappingSummary.row_count} icon={<FileSpreadsheet size={16} />} /><StatCard label="车型" value={mappingSummary.vehicle_count} icon={<Layers size={16} />} /><StatCard label="技术点" value={mappingSummary.technology_count} icon={<Wrench size={16} />} /><StatCard label="证据" value={mappingSummary.evidence_count} icon={<FileText size={16} />} /></div>
+          <div className="border border-white/10 rounded overflow-hidden"><div className="px-4 py-3 bg-white/[0.03] flex items-center"><div><div className="text-[11px] font-bold text-white/65">字段映射确认 · {preview.sheet_name}</div><div className="text-[9px] text-white/30 mt-1">左侧为 Excel 原始列，右侧选择系统标准字段</div></div><button onClick={() => setFinalMapping(preview.auto_mapping || {})} className="ml-auto text-[10px] text-cyan-200 hover:text-cyan-100">恢复自动识别</button></div><div className="divide-y divide-white/5">{preview.raw_headers.filter(Boolean).map((header: string) => <div key={header} className="grid grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)] items-center gap-3 px-4 py-2.5"><div className="text-xs text-white/75 truncate" title={header}>{header}</div><div className="text-white/20 text-center">→</div><select aria-label={`${header} 字段映射`} value={finalMapping[header] || ''} onChange={(event) => updateMapping(header, event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white"><option value="">忽略</option>{preview.supported_fields.map((field: any) => <option key={field.key} value={field.key}>{field.group} · {field.label}</option>)}</select></div>)}</div></div>
+          {unmappedHeaders.length > 0 && <div className="text-xs text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded px-3 py-2">当前忽略字段：{unmappedHeaders.join('、')}</div>}
+          {missingRequiredFields.length > 0 && <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded px-3 py-2">缺失关键字段：{missingRequiredFields.map((field) => missingLabels[field]).join('、')}。{missingRequiredFields.includes('model_name') ? '缺少车型字段，无法导入车型数据。' : ''}</div>}
+          <div className="border border-white/10 rounded overflow-x-auto"><table className="w-full min-w-[760px] text-left text-[10px]"><thead className="bg-white/5 text-white/45"><tr><th className="px-3 py-2">行</th>{preview.raw_headers.filter(Boolean).map((header: string) => <th key={header} className="px-3 py-2 max-w-[180px] truncate">{header}</th>)}</tr></thead><tbody className="divide-y divide-white/5">{preview.preview_rows.map((row: any) => <tr key={row.__row_number__}><td className="px-3 py-2 text-white/30 font-mono">{row.__row_number__}</td>{preview.raw_headers.filter(Boolean).map((header: string) => <td key={header} className="px-3 py-2 text-white/65 max-w-[220px] truncate">{row[header] ?? '-'}</td>)}</tr>)}</tbody></table>{preview.raw_rows.length > 20 && <div className="px-3 py-2 text-[10px] text-white/30">仅展示前 20 行，共 {preview.raw_rows.length} 行</div>}</div>
+          <div className="flex justify-end"><Button size="sm" onClick={confirmImport} disabled={isImporting || preview.raw_rows.length === 0 || missingRequiredFields.length > 0}>{isImporting ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}使用当前映射确认导入</Button></div>
+        </>}
+        {result && <div className="border border-emerald-500/20 bg-emerald-500/10 rounded px-4 py-3 text-xs text-emerald-200">导入完成：新增车型 {result.created.vehicles}、版本 {result.created.variants}、技术点 {result.created.technologies}、证据 {result.created.evidence}。</div>}
+      </div>
+    </GlassCard>
+  </div>;
+}
 export const CompetitorLibrary: React.FC = () => {
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [technologies, setTechnologies] = useState<any[]>([]);
@@ -73,6 +157,7 @@ export const CompetitorLibrary: React.FC = () => {
   const [detailVehicle, setDetailVehicle] = useState<any | null>(null);
   const [detailEvidence, setDetailEvidence] = useState<any | null>(null);
   const [modal, setModal] = useState<any | null>(null);
+  const [excelImportOpen, setExcelImportOpen] = useState(false);
   const [compareLeftId, setCompareLeftId] = useState('');
   const [compareRightId, setCompareRightId] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -101,6 +186,7 @@ export const CompetitorLibrary: React.FC = () => {
 
   return <div className="w-full relative">
     <div className="flex items-center justify-between mb-4 px-1"><div className="flex items-center gap-3"><div className="w-1 h-4 bg-cyan-400 rounded-full" /><h3 className="text-xs font-black text-white/50 tracking-[0.2em]">竞品库工作台</h3><span className="text-[10px] text-white/25">人工维护 / 搜索 / 对比</span></div><div className="flex items-center gap-2"><Button variant="ghost" size="sm" onClick={loadData} disabled={isLoading}><RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />刷新</Button><Button size="sm" onClick={seedData} disabled={isSeeding}>{isSeeding ? <Loader2 size={13} className="animate-spin" /> : <Database size={13} />}初始化示例数据</Button></div></div>
+    <GlassCard className="mb-4 px-4 py-3 border-white/10 flex flex-col md:flex-row md:items-center gap-3"><div className="flex items-center gap-3"><div className="w-9 h-9 rounded bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center"><FileSpreadsheet size={17} className="text-emerald-300" /></div><div><div className="text-xs font-bold text-white/75">Excel 配置表导入</div><div className="text-[10px] text-white/30 mt-0.5">上传后先预览字段与数据，确认后再写入竞品库</div></div></div><Button size="sm" className="md:ml-auto" onClick={() => setExcelImportOpen(true)}><FileSpreadsheet size={14} />Excel 导入</Button></GlassCard>
     {error && <GlassCard className="mb-4 px-4 py-3 border border-rose-500/30 text-rose-300 text-xs">{error}</GlassCard>}
     {isLoading ? <div className="h-56 flex items-center justify-center"><Loader2 size={28} className="text-violet-500 animate-spin" /></div> : !hasData ? <EmptyState onSeed={seedData} isSeeding={isSeeding} /> : <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4"><StatCard label="车型数量" value={vehicles.length} icon={<Layers size={17} />} /><StatCard label="技术点数量" value={technologies.length} icon={<Wrench size={17} />} /><StatCard label="证据数量" value={evidence.length} icon={<FileText size={17} />} /></div>
@@ -115,5 +201,6 @@ export const CompetitorLibrary: React.FC = () => {
     <VehicleDetailDrawer vehicle={detailVehicle} onClose={() => setDetailVehicle(null)} onEdit={(vehicle) => setModal({ type: 'vehicle', initial: vehicle })} />
     <EvidenceDetailDrawer evidence={detailEvidence} onClose={() => setDetailEvidence(null)} />
     {modal && <MaintenanceModal type={modal.type} initial={modal.initial} vehicles={vehicles} technologies={technologies} onClose={() => setModal(null)} onSave={saveModal} />}
+    {excelImportOpen && <ExcelImportModal onClose={() => setExcelImportOpen(false)} onImported={loadData} />}
   </div>;
 };

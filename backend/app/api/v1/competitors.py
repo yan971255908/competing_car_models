@@ -1,4 +1,5 @@
 import uuid
+from fastapi import File, UploadFile
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,6 +19,7 @@ from app.models.sql import (
     VehicleModel,
     VehicleVariant,
 )
+from app.services.excel_import_service import build_preview, transform_rows
 
 router = APIRouter()
 _schema_ready = False
@@ -48,6 +50,33 @@ class EvidencePayload(BaseModel):
     evidence_text: str
     page_or_time: Optional[str] = None
     confidence: float = 0.8
+
+
+class ExcelImportRow(BaseModel):
+    row_number: int
+    brand_name: Optional[str] = None
+    model_name: Optional[str] = None
+    variant_name: Optional[str] = None
+    energy_type: Optional[str] = None
+    market_segment: Optional[str] = None
+    launch_year: Optional[int] = None
+    base_price: Optional[float] = None
+    technology_name: Optional[str] = None
+    technology_category: TechnologyCategory = TechnologyCategory.OTHER
+    technology_description: Optional[str] = None
+    maturity_level: TechnologyMaturityLevel = TechnologyMaturityLevel.CONCEPT
+    evidence_text: Optional[str] = None
+    source_type: SourceDocumentType = SourceDocumentType.EXCEL
+    page_or_time: Optional[str] = None
+    confidence: float = Field(default=0.8, ge=0, le=1)
+
+
+class ExcelImportConfirmPayload(BaseModel):
+    file_name: str = "competitor_import.xlsx"
+    sheet_name: Optional[str] = None
+    raw_headers: list[str] = Field(default_factory=list)
+    raw_rows: list[dict[str, Any]] = Field(default_factory=list)
+    final_mapping: dict[str, Optional[str]] = Field(default_factory=dict)
 
 
 async def ensure_competitor_schema(db: AsyncSession) -> None:
@@ -361,6 +390,160 @@ async def get_evidence(evidence_id: uuid.UUID, db: AsyncSession = Depends(get_db
     if not item:
         raise HTTPException(status_code=404, detail="Evidence not found")
     return evidence_to_dict(item)
+@router.post("/import/excel/preview")
+async def preview_excel_import(file: UploadFile = File(...)):
+    file_name = file.filename or "competitor_import.xlsx"
+    if not file_name.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="第一版仅支持 .xlsx 文件")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Excel 文件为空")
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Excel 文件不能超过 10MB")
+    return build_preview(content, file_name)
+
+
+@router.post("/import/excel/confirm")
+async def confirm_excel_import(
+    payload: ExcelImportConfirmPayload,
+    db: AsyncSession = Depends(get_db),
+):
+    await ensure_competitor_schema(db)
+    if not payload.raw_rows:
+        raise HTTPException(status_code=400, detail="没有可导入的原始数据")
+    if not payload.final_mapping:
+        raise HTTPException(status_code=400, detail="请确认最终字段映射")
+    transformed_rows, applied_mapping = transform_rows(
+        payload.raw_headers,
+        payload.raw_rows,
+        payload.final_mapping,
+    )
+    if not transformed_rows:
+        raise HTTPException(status_code=400, detail="当前字段映射没有产生可导入数据")
+    rows = [ExcelImportRow(**row) for row in transformed_rows]
+
+    vehicles = (await db.execute(select(VehicleModel))).scalars().all()
+    vehicle_map = {
+        (item.brand_name.strip().casefold(), item.model_name.strip().casefold()): item
+        for item in vehicles
+    }
+    technologies = (await db.execute(select(TechnologyPoint))).scalars().all()
+    technology_map = {
+        (item.name.strip().casefold(), enum_value(item.category)): item
+        for item in technologies
+    }
+    variants = (await db.execute(select(VehicleVariant))).scalars().all()
+    variant_keys = {
+        (item.vehicle_id, item.variant_name.strip().casefold()) for item in variants
+    }
+    existing_evidence = set(
+        (await db.execute(select(Evidence.evidence_text))).scalars().all()
+    )
+    source_documents: dict[SourceDocumentType, SourceDocument] = {}
+    created = {"vehicles": 0, "variants": 0, "technologies": 0, "evidence": 0}
+    skipped = {"vehicles": 0, "variants": 0, "technologies": 0, "evidence": 0}
+
+    try:
+        for row in rows:
+            vehicle = None
+            if row.model_name and row.model_name.strip():
+                brand_name = (row.brand_name or "未填写品牌").strip()
+                model_name = row.model_name.strip()
+                vehicle_key = (brand_name.casefold(), model_name.casefold())
+                vehicle = vehicle_map.get(vehicle_key)
+                if vehicle is None:
+                    vehicle = VehicleModel(
+                        brand_name=brand_name,
+                        model_name=model_name,
+                        energy_type=row.energy_type,
+                        market_segment=row.market_segment,
+                        launch_year=row.launch_year,
+                        base_price=row.base_price,
+                        specs={},
+                    )
+                    db.add(vehicle)
+                    await db.flush()
+                    vehicle_map[vehicle_key] = vehicle
+                    created["vehicles"] += 1
+                else:
+                    skipped["vehicles"] += 1
+
+                if row.variant_name and row.variant_name.strip():
+                    variant_name = row.variant_name.strip()
+                    variant_key = (vehicle.id, variant_name.casefold())
+                    if variant_key not in variant_keys:
+                        db.add(VehicleVariant(
+                            vehicle_id=vehicle.id,
+                            variant_name=variant_name,
+                            price=row.base_price,
+                            config={},
+                        ))
+                        variant_keys.add(variant_key)
+                        created["variants"] += 1
+                    else:
+                        skipped["variants"] += 1
+
+            technology = None
+            if row.technology_name and row.technology_name.strip():
+                technology_name = row.technology_name.strip()
+                technology_key = (technology_name.casefold(), row.technology_category.value)
+                technology = technology_map.get(technology_key)
+                if technology is None:
+                    technology = TechnologyPoint(
+                        name=technology_name,
+                        category=row.technology_category,
+                        description=row.technology_description,
+                        maturity_level=row.maturity_level,
+                        tags=[],
+                    )
+                    db.add(technology)
+                    await db.flush()
+                    technology_map[technology_key] = technology
+                    created["technologies"] += 1
+                else:
+                    skipped["technologies"] += 1
+
+            evidence_text = (row.evidence_text or "").strip()
+            if evidence_text:
+                if evidence_text in existing_evidence:
+                    skipped["evidence"] += 1
+                    continue
+                source_document = source_documents.get(row.source_type)
+                if source_document is None:
+                    source_document = SourceDocument(
+                        title=f"Excel 导入 - {payload.file_name}",
+                        source_type=row.source_type,
+                        raw_text=f"Sheet: {payload.sheet_name or 'Sheet1'}",
+                        file_name=payload.file_name[:255],
+                    )
+                    db.add(source_document)
+                    await db.flush()
+                    source_documents[row.source_type] = source_document
+                db.add(Evidence(
+                    source_document_id=source_document.id,
+                    vehicle_id=vehicle.id if vehicle else None,
+                    technology_id=technology.id if technology else None,
+                    evidence_text=evidence_text,
+                    page_or_time=row.page_or_time,
+                    confidence=row.confidence,
+                ))
+                existing_evidence.add(evidence_text)
+                created["evidence"] += 1
+
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
+    return {
+        "status": "ok",
+        "file_name": payload.file_name,
+        "applied_mapping": applied_mapping,
+        "created": created,
+        "skipped_duplicates": skipped,
+    }
+
+
 @router.post("/seed")
 async def seed_competitors(db: AsyncSession = Depends(get_db)):
     await ensure_competitor_schema(db)

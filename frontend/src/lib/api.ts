@@ -296,6 +296,25 @@ export const competitors = {
     body: JSON.stringify(payload),
   }),
 
+  previewExcel: async (file: File, ...args: any[]) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${API_BASE_URL}/competitors/import/excel/preview`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data?.detail || `${response.status} ${response.statusText}`);
+    }
+    return response.json();
+  },
+
+  confirmExcel: async (payload: any, ...args: any[]) => request('/competitors/import/excel/confirm', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+
   seed: async (...args: any[]) => request('/competitors/seed', {
     method: 'POST',
   }),
