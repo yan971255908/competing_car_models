@@ -296,6 +296,37 @@ export const competitors = {
     body: JSON.stringify(payload),
   }),
 
+  sources: async (...args: any[]) => request('/competitors/sources'),
+
+  sourceDetail: async (id: string, ...args: any[]) => request(`/competitors/sources/${encodeURIComponent(id)}`),
+
+  createTextSource: async (payload: any, ...args: any[]) => request('/competitors/sources/text', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+
+  uploadTextSource: async (file: File, metadata: any = {}, ...args: any[]) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (metadata.title) formData.append('title', metadata.title);
+    if (metadata.source_type) formData.append('source_type', metadata.source_type);
+    if (metadata.source_url) formData.append('source_url', metadata.source_url);
+    const response = await fetch(`${API_BASE_URL}/competitors/sources/upload-text`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data?.detail || `${response.status} ${response.statusText}`);
+    }
+    return response.json();
+  },
+
+  createEvidenceFromSource: async (payload: any, ...args: any[]) => request('/competitors/evidence/from-source', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+
   downloadExcelTemplate: async (...args: any[]) => {
     const response = await fetch(`${API_BASE_URL}/competitors/import/excel/template`);
     if (!response.ok) throw new Error(`模板下载失败: ${response.status}`);

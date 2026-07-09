@@ -1,5 +1,5 @@
 import uuid
-from fastapi import File, UploadFile
+from fastapi import File, Form, UploadFile
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -23,6 +23,13 @@ from app.services.excel_import_service import build_preview, build_template, val
 
 router = APIRouter()
 _schema_ready = False
+TEXT_SOURCE_TYPES = {
+    SourceDocumentType.PRESS_RELEASE,
+    SourceDocumentType.OFFICIAL_SITE,
+    SourceDocumentType.WEBPAGE,
+    SourceDocumentType.TRANSCRIPT,
+    SourceDocumentType.MANUAL,
+}
 
 
 class VehiclePayload(BaseModel):
@@ -50,6 +57,23 @@ class EvidencePayload(BaseModel):
     evidence_text: str
     page_or_time: Optional[str] = None
     confidence: float = 0.8
+
+
+class TextSourcePayload(BaseModel):
+    title: str
+    source_type: SourceDocumentType
+    source_url: Optional[str] = None
+    raw_text: str
+    file_name: Optional[str] = None
+
+
+class EvidenceFromSourcePayload(BaseModel):
+    source_document_id: uuid.UUID
+    vehicle_id: Optional[uuid.UUID] = None
+    technology_id: Optional[uuid.UUID] = None
+    evidence_text: str
+    page_or_time: Optional[str] = None
+    confidence: float = Field(default=0.8, ge=0, le=1)
 
 
 class ExcelImportRow(BaseModel):
@@ -204,6 +228,24 @@ def evidence_to_dict(item: Evidence) -> dict:
     }
 
 
+def source_document_to_dict(item: SourceDocument, include_detail: bool = False) -> dict:
+    evidence_items = item.__dict__.get("evidence_items", [])
+    data = {
+        "id": str(item.id),
+        "title": item.title,
+        "source_type": enum_value(item.source_type),
+        "source_url": item.source_url,
+        "file_name": item.file_name,
+        "created_at": dt(item.created_at),
+        "raw_text_length": len(item.raw_text or ""),
+        "evidence_count": len(evidence_items),
+    }
+    if include_detail:
+        data["raw_text"] = item.raw_text or ""
+        data["evidence_items"] = [evidence_to_dict(evidence) for evidence in evidence_items]
+    return data
+
+
 @router.get("/vehicles")
 async def list_vehicles(db: AsyncSession = Depends(get_db)):
     await ensure_competitor_schema(db)
@@ -311,6 +353,101 @@ async def list_technologies(db: AsyncSession = Depends(get_db)):
     return [technology_to_dict(item) for item in result.scalars().all()]
 
 
+@router.post("/sources/text")
+async def create_text_source(payload: TextSourcePayload, db: AsyncSession = Depends(get_db)):
+    await ensure_competitor_schema(db)
+    if payload.source_type not in TEXT_SOURCE_TYPES:
+        raise HTTPException(status_code=400, detail="文本资料不支持该来源类型")
+    if not payload.title.strip():
+        raise HTTPException(status_code=400, detail="标题不能为空")
+    if not payload.raw_text.strip():
+        raise HTTPException(status_code=400, detail="正文不能为空")
+
+    item = SourceDocument(
+        title=payload.title.strip(),
+        source_type=payload.source_type,
+        source_url=payload.source_url.strip() if payload.source_url else None,
+        raw_text=payload.raw_text,
+        file_name=payload.file_name.strip()[:255] if payload.file_name else None,
+    )
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    return source_document_to_dict(item, include_detail=True)
+
+
+@router.post("/sources/upload-text")
+async def upload_text_source(
+    file: UploadFile = File(...),
+    title: Optional[str] = Form(None),
+    source_type: SourceDocumentType = Form(SourceDocumentType.MANUAL),
+    source_url: Optional[str] = Form(None),
+    db: AsyncSession = Depends(get_db),
+):
+    await ensure_competitor_schema(db)
+    file_name = (file.filename or "uploaded.txt").replace("\\", "/").split("/")[-1]
+    if not file_name.lower().endswith(".txt"):
+        raise HTTPException(status_code=400, detail="第一版仅支持 .txt 文件")
+    if source_type not in TEXT_SOURCE_TYPES:
+        raise HTTPException(status_code=400, detail="文本资料不支持该来源类型")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="TXT 文件为空")
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="TXT 文件不能超过 5MB")
+    try:
+        raw_text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        try:
+            raw_text = content.decode("gb18030")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(status_code=400, detail="TXT 文件编码必须为 UTF-8 或 GB18030") from exc
+    if not raw_text.strip():
+        raise HTTPException(status_code=400, detail="TXT 正文不能为空")
+
+    item = SourceDocument(
+        title=(title or file_name.rsplit(".", 1)[0]).strip() or file_name,
+        source_type=source_type,
+        source_url=source_url.strip() if source_url else None,
+        raw_text=raw_text,
+        file_name=file_name[:255],
+    )
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    return source_document_to_dict(item, include_detail=True)
+
+
+@router.get("/sources")
+async def list_sources(db: AsyncSession = Depends(get_db)):
+    await ensure_competitor_schema(db)
+    result = await db.execute(
+        select(SourceDocument)
+        .options(selectinload(SourceDocument.evidence_items))
+        .order_by(SourceDocument.created_at.desc())
+    )
+    return [source_document_to_dict(item) for item in result.scalars().all()]
+
+
+@router.get("/sources/{source_id}")
+async def get_source(source_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    await ensure_competitor_schema(db)
+    result = await db.execute(
+        select(SourceDocument)
+        .options(
+            selectinload(SourceDocument.evidence_items).selectinload(Evidence.source_document),
+            selectinload(SourceDocument.evidence_items).selectinload(Evidence.vehicle),
+            selectinload(SourceDocument.evidence_items).selectinload(Evidence.technology),
+        )
+        .where(SourceDocument.id == source_id)
+    )
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="来源文档不存在")
+    return source_document_to_dict(item, include_detail=True)
+
+
 @router.get("/evidence")
 async def list_evidence(
     vehicle_id: Optional[uuid.UUID] = None,
@@ -373,6 +510,55 @@ async def create_evidence(payload: EvidencePayload, db: AsyncSession = Depends(g
     result = await db.execute(
         select(Evidence)
         .options(selectinload(Evidence.source_document), selectinload(Evidence.vehicle), selectinload(Evidence.technology))
+        .where(Evidence.id == item.id)
+    )
+    return evidence_to_dict(result.scalar_one())
+
+
+@router.post("/evidence/from-source")
+async def create_evidence_from_source(
+    payload: EvidenceFromSourcePayload,
+    db: AsyncSession = Depends(get_db),
+):
+    await ensure_competitor_schema(db)
+    evidence_text = payload.evidence_text.strip()
+    if not evidence_text:
+        raise HTTPException(status_code=400, detail="证据文本不能为空")
+
+    source_result = await db.execute(
+        select(SourceDocument).where(SourceDocument.id == payload.source_document_id)
+    )
+    if not source_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="来源文档不存在")
+    if payload.vehicle_id:
+        vehicle_result = await db.execute(select(VehicleModel).where(VehicleModel.id == payload.vehicle_id))
+        if not vehicle_result.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="车型不存在")
+    if payload.technology_id:
+        technology_result = await db.execute(
+            select(TechnologyPoint).where(TechnologyPoint.id == payload.technology_id)
+        )
+        if not technology_result.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="技术点不存在")
+
+    item = Evidence(
+        source_document_id=payload.source_document_id,
+        vehicle_id=payload.vehicle_id,
+        technology_id=payload.technology_id,
+        evidence_text=evidence_text,
+        page_or_time=payload.page_or_time.strip() if payload.page_or_time else None,
+        confidence=payload.confidence,
+    )
+    db.add(item)
+    await db.commit()
+
+    result = await db.execute(
+        select(Evidence)
+        .options(
+            selectinload(Evidence.source_document),
+            selectinload(Evidence.vehicle),
+            selectinload(Evidence.technology),
+        )
         .where(Evidence.id == item.id)
     )
     return evidence_to_dict(result.scalar_one())
@@ -665,4 +851,3 @@ async def seed_competitors(db: AsyncSession = Depends(get_db)):
 
     await db.commit()
     return {"status": "ok", "message": "Competitor seed data is ready."}
-
