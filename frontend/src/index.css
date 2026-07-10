@@ -27,6 +27,47 @@ body {
   min-height: 100vh;
 }
 
+/* Keep native dropdown popups readable inside the dark competitor workspace. */
+.competitor-library {
+  color-scheme: dark;
+}
+
+.competitor-select {
+  color-scheme: dark;
+  background-color: #20202a;
+  color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.competitor-select:focus {
+  border-color: rgba(34, 211, 238, 0.55);
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.22);
+}
+
+.competitor-select:disabled {
+  background-color: #181820;
+  color: rgba(255, 255, 255, 0.55);
+  border-color: rgba(255, 255, 255, 0.08);
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.competitor-select option {
+  background-color: #20202a;
+  color: #f5f5f7;
+}
+
+.competitor-select option:checked {
+  background-color: #403263;
+  color: #ffffff;
+}
+
+.competitor-select option:disabled {
+  background-color: #181820;
+  color: #8f8f98;
+}
+
 /* Glassmorphism utility */
 @layer utilities {
   .glass {

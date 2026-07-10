@@ -3,6 +3,7 @@
 // 合并版：保留原项目 Mock 面板 + 补充真实后端请求能力
 
 import type { CandidateApprovePayload, CandidateCreatePayload, CandidateUpdatePayload } from '@/types/competitorReview';
+import type { CompetitorAIExtractPayload, CompetitorAIExtractResult, CompetitorAIStatus } from '@/types/competitorAI';
 
 export const API_BASE_URL = '/api/v1';
 
@@ -379,6 +380,13 @@ export const competitors = {
   }),
 
   rejectReviewCandidate: async (id: string, payload: any, ...args: any[]) => request(`/competitors/reviews/candidates/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+
+  competitorAIStatus: async (...args: any[]) => request<CompetitorAIStatus>('/competitors/ai/status'),
+
+  extractSourceCandidates: async (payload: CompetitorAIExtractPayload, ...args: any[]) => request<CompetitorAIExtractResult>('/competitors/ai/extract', {
     method: 'POST',
     body: JSON.stringify(payload),
   }),

@@ -15,6 +15,7 @@ interface Props {
   vehicles: LookupItem[];
   technologies: LookupItem[];
   onDataChanged: () => Promise<void>;
+  initialOrigin?: CandidateOrigin | '';
 }
 
 const emptySummary: CandidateSummary = { pending: 0, approved: 0, rejected: 0, total: 0 };
@@ -35,12 +36,12 @@ function TextArea({ label, value, onChange, rows = 4, disabled = false }: { labe
   return <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">{label}<textarea value={value} rows={rows} disabled={disabled} onChange={(event) => onChange(event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400/50 disabled:opacity-50" /></label>;
 }
 
-export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }: Props) {
+export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged, initialOrigin = '' }: Props) {
   const [summary, setSummary] = useState<CandidateSummary>(emptySummary);
   const [items, setItems] = useState<ExtractionCandidate[]>([]);
   const [detail, setDetail] = useState<ExtractionCandidate | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
-  const [filters, setFilters] = useState<{ status: string; origin: string; keyword: string }>({ status: 'pending', origin: '', keyword: '' });
+  const [filters, setFilters] = useState<{ status: string; origin: string; keyword: string }>({ status: 'pending', origin: initialOrigin, keyword: '' });
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isReviewing, setIsReviewing] = useState(false);
@@ -198,8 +199,8 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
     </div>
 
     <GlassCard className="px-4 py-3 border-white/10 flex flex-col md:flex-row gap-2 md:items-center">
-      <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white"><option value="">全部状态</option><option value="pending">待审核</option><option value="approved">已批准</option><option value="rejected">已拒绝</option></select>
-      <select value={filters.origin} onChange={(event) => setFilters({ ...filters, origin: event.target.value })} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white"><option value="">全部来源</option><option value="manual">人工</option><option value="ai">AI</option></select>
+      <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })} className="competitor-select bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white"><option value="">全部状态</option><option value="pending">待审核</option><option value="approved">已批准</option><option value="rejected">已拒绝</option></select>
+      <select value={filters.origin} onChange={(event) => setFilters({ ...filters, origin: event.target.value })} className="competitor-select bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white"><option value="">全部来源</option><option value="manual">人工</option><option value="ai">AI</option></select>
       <label className="flex-1 flex items-center gap-2 bg-white/5 border border-white/10 rounded px-3 py-2"><Search size={13} className="text-white/30" /><input value={filters.keyword} onChange={(event) => setFilters({ ...filters, keyword: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter') loadReviews(); }} placeholder="搜索车型 / 技术点 / 证据" className="bg-transparent outline-none text-xs text-white placeholder-white/25 flex-1" /></label>
       <Button size="sm" variant="ghost" onClick={() => loadReviews()} disabled={isLoading}>{isLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}刷新/筛选</Button>
     </GlassCard>
@@ -235,13 +236,13 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
               <pre className="mt-3 max-h-[220px] overflow-auto custom-scrollbar whitespace-pre-wrap bg-black/20 border border-white/10 rounded p-3 text-[11px] leading-relaxed text-white/65">{JSON.stringify(detail.raw_payload, null, 2)}</pre>
             </details>}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">匹配已有车型<select disabled={controlsDisabled} value={form.matched_vehicle_id || ''} onChange={(event) => set('matched_vehicle_id', event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white disabled:opacity-50"><option value="">不匹配，按候选车型处理</option>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.brand_name} {vehicle.model_name}</option>)}</select></label>
-              <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">匹配已有技术点<select disabled={controlsDisabled} value={form.matched_technology_id || ''} onChange={(event) => set('matched_technology_id', event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white disabled:opacity-50"><option value="">不匹配，按候选技术点处理</option>{technologies.map((technology) => <option key={technology.id} value={technology.id}>{technology.name}</option>)}</select></label>
+              <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">匹配已有车型<select disabled={controlsDisabled} value={form.matched_vehicle_id || ''} onChange={(event) => set('matched_vehicle_id', event.target.value)} className="competitor-select bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white"><option value="">不匹配，按候选车型处理</option>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.brand_name} {vehicle.model_name}</option>)}</select></label>
+              <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">匹配已有技术点<select disabled={controlsDisabled} value={form.matched_technology_id || ''} onChange={(event) => set('matched_technology_id', event.target.value)} className="competitor-select bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white"><option value="">不匹配，按候选技术点处理</option>{technologies.map((technology) => <option key={technology.id} value={technology.id}>{technology.name}</option>)}</select></label>
               <TextInput disabled={controlsDisabled} label="候选品牌" value={form.proposed_brand_name || ''} onChange={(value) => set('proposed_brand_name', value)} />
               <TextInput disabled={controlsDisabled} label="候选车型" value={form.proposed_model_name || ''} onChange={(value) => set('proposed_model_name', value)} />
               <TextInput disabled={controlsDisabled} label="候选技术点" value={form.proposed_technology_name || ''} onChange={(value) => set('proposed_technology_name', value)} />
-              <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">技术类别<select disabled={controlsDisabled} value={form.technology_category || 'other'} onChange={(event) => set('technology_category', event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white disabled:opacity-50">{categoryOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-              <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">成熟度<select disabled={controlsDisabled} value={form.maturity_level || 'concept'} onChange={(event) => set('maturity_level', event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white disabled:opacity-50">{maturityOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+              <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">技术类别<select disabled={controlsDisabled} value={form.technology_category || 'other'} onChange={(event) => set('technology_category', event.target.value)} className="competitor-select bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white">{categoryOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+              <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">成熟度<select disabled={controlsDisabled} value={form.maturity_level || 'concept'} onChange={(event) => set('maturity_level', event.target.value)} className="competitor-select bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white">{maturityOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
               <TextInput disabled={controlsDisabled} label="置信度（0-1）" type="number" value={form.confidence || '0.8'} onChange={(value) => set('confidence', value)} />
               <TextInput disabled={controlsDisabled} label="页码或时间" value={form.page_or_time || ''} onChange={(value) => set('page_or_time', value)} />
             </div>

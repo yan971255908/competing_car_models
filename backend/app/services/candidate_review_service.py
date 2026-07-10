@@ -1,3 +1,5 @@
+import hashlib
+import re
 import uuid
 from datetime import datetime
 from typing import Any, Optional
@@ -51,6 +53,41 @@ def validate_confidence(value: float) -> float:
     if value < 0 or value > 1:
         raise HTTPException(status_code=400, detail="confidence 必须在 0 到 1 之间")
     return value
+
+
+def _normalize_whitespace(value: Optional[str]) -> str:
+    return re.sub(r"\s+", " ", (value or "").strip())
+
+
+def _validate_ai_candidate_source(
+    item: ExtractionCandidate,
+    source: SourceDocument,
+) -> None:
+    raw_payload = item.raw_payload
+    if not (
+        item.origin == CandidateOrigin.AI
+        and isinstance(raw_payload, dict)
+        and raw_payload.get("generator") == "competitor_ai_extraction"
+    ):
+        return
+    source_sha256 = raw_payload.get("source_sha256")
+    if not source_sha256:
+        raise HTTPException(
+            status_code=409,
+            detail="AI候选缺少来源审计哈希，无法批准，请重新提取",
+        )
+    current_text = source.raw_text or ""
+    current_sha256 = hashlib.sha256(current_text.encode("utf-8")).hexdigest()
+    if current_sha256 != source_sha256:
+        raise HTTPException(
+            status_code=409,
+            detail="来源文档在AI候选生成后发生变化，请重新提取候选",
+        )
+    if _normalize_whitespace(item.evidence_text) not in _normalize_whitespace(current_text):
+        raise HTTPException(
+            status_code=409,
+            detail="候选证据已无法在当前来源正文中定位，请重新提取候选",
+        )
 
 
 def source_to_dict(item: Optional[SourceDocument], include_raw_text: bool = False) -> Optional[dict]:
@@ -254,6 +291,20 @@ async def create_candidate_record(
     payload: Any,
     origin: CandidateOrigin,
 ) -> dict:
+    try:
+        item = await create_candidate_entity(db, payload, origin)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    return candidate_to_dict(await get_candidate(db, item.id), include_detail=True)
+
+
+async def create_candidate_entity(
+    db: AsyncSession,
+    payload: Any,
+    origin: CandidateOrigin,
+) -> ExtractionCandidate:
     await ensure_review_schema()
     source = (
         await db.execute(select(SourceDocument).where(SourceDocument.id == payload.source_document_id))
@@ -279,8 +330,8 @@ async def create_candidate_record(
         raw_payload=payload.raw_payload or {},
     )
     db.add(item)
-    await db.commit()
-    return candidate_to_dict(await get_candidate(db, item.id), include_detail=True)
+    await db.flush()
+    return item
 
 
 async def create_manual_candidate(db: AsyncSession, payload: Any) -> dict:
@@ -390,6 +441,7 @@ async def approve_candidate(db: AsyncSession, candidate_id: uuid.UUID, payload: 
         ).scalar_one_or_none()
         if not source:
             raise HTTPException(status_code=404, detail="来源文档不存在")
+        _validate_ai_candidate_source(item, source)
         vehicle = await resolve_vehicle(db, item, payload.create_missing_vehicle)
         technology = await resolve_technology(db, item, payload.create_missing_technology)
         existing = (
