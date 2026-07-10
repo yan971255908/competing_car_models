@@ -18,6 +18,7 @@ from app.models.sql import (
     TechnologyMaturityLevel,
     TechnologyPoint,
     VehicleModel,
+    utcnow,
 )
 
 _schema_ready = False
@@ -226,12 +227,14 @@ async def get_candidate(db: AsyncSession, candidate_id: uuid.UUID) -> Extraction
     return item
 
 
-async def validate_source_and_matches(db: AsyncSession, payload: Any) -> None:
-    source = (
-        await db.execute(select(SourceDocument).where(SourceDocument.id == payload.source_document_id))
-    ).scalar_one_or_none()
-    if not source:
-        raise HTTPException(status_code=404, detail="来源文档不存在")
+async def validate_candidate_business_fields(db: AsyncSession, payload: Any) -> None:
+    if not payload.evidence_text.strip():
+        raise HTTPException(status_code=400, detail="证据文本不能为空")
+    if not payload.matched_vehicle_id and not (payload.proposed_model_name or "").strip():
+        raise HTTPException(status_code=400, detail="必须匹配已有车型或填写候选车型名称")
+    if not payload.matched_technology_id and not (payload.proposed_technology_name or "").strip():
+        raise HTTPException(status_code=400, detail="必须匹配已有技术点或填写候选技术点名称")
+    validate_confidence(payload.confidence)
     if payload.matched_vehicle_id:
         vehicle = (
             await db.execute(select(VehicleModel).where(VehicleModel.id == payload.matched_vehicle_id))
@@ -248,10 +251,12 @@ async def validate_source_and_matches(db: AsyncSession, payload: Any) -> None:
 
 async def create_candidate(db: AsyncSession, payload: Any) -> dict:
     await ensure_review_schema()
-    if not payload.evidence_text.strip():
-        raise HTTPException(status_code=400, detail="evidence_text 不能为空")
-    validate_confidence(payload.confidence)
-    await validate_source_and_matches(db, payload)
+    source = (
+        await db.execute(select(SourceDocument).where(SourceDocument.id == payload.source_document_id))
+    ).scalar_one_or_none()
+    if not source:
+        raise HTTPException(status_code=404, detail="来源文档不存在")
+    await validate_candidate_business_fields(db, payload)
     item = ExtractionCandidate(
         source_document_id=payload.source_document_id,
         origin=payload.origin,
@@ -278,12 +283,7 @@ async def update_candidate(db: AsyncSession, candidate_id: uuid.UUID, payload: A
     item = await get_candidate(db, candidate_id)
     if item.status != CandidateStatus.PENDING:
         raise HTTPException(status_code=409, detail="已审核候选不能再次编辑")
-    if not payload.evidence_text.strip():
-        raise HTTPException(status_code=400, detail="evidence_text 不能为空")
-    validate_confidence(payload.confidence)
-    await validate_source_and_matches(db, payload)
-    item.source_document_id = payload.source_document_id
-    item.origin = payload.origin
+    await validate_candidate_business_fields(db, payload)
     item.proposed_brand_name = (payload.proposed_brand_name or "").strip() or None
     item.proposed_model_name = (payload.proposed_model_name or "").strip() or None
     item.matched_vehicle_id = payload.matched_vehicle_id
@@ -365,10 +365,19 @@ async def resolve_technology(db: AsyncSession, item: ExtractionCandidate, create
 
 
 async def approve_candidate(db: AsyncSession, candidate_id: uuid.UUID, payload: Any) -> dict:
-    item = await get_candidate(db, candidate_id)
-    if item.status != CandidateStatus.PENDING:
-        raise HTTPException(status_code=409, detail="只有 pending 候选可以批准")
+    await ensure_review_schema()
     try:
+        item = (
+            await db.execute(
+                select(ExtractionCandidate)
+                .where(ExtractionCandidate.id == candidate_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if not item:
+            raise HTTPException(status_code=404, detail="候选记录不存在")
+        if item.status != CandidateStatus.PENDING:
+            raise HTTPException(status_code=409, detail="只有 pending 候选可以批准")
         source = (
             await db.execute(select(SourceDocument).where(SourceDocument.id == item.source_document_id))
         ).scalar_one_or_none()
@@ -403,7 +412,7 @@ async def approve_candidate(db: AsyncSession, candidate_id: uuid.UUID, payload: 
         item.matched_vehicle_id = vehicle.id
         item.matched_technology_id = technology.id
         item.approved_evidence_id = evidence.id
-        item.reviewed_at = datetime.utcnow()
+        item.reviewed_at = utcnow()
         item.review_note = (payload.review_note or "").strip() or None
         await db.commit()
     except HTTPException:
@@ -416,11 +425,27 @@ async def approve_candidate(db: AsyncSession, candidate_id: uuid.UUID, payload: 
 
 
 async def reject_candidate(db: AsyncSession, candidate_id: uuid.UUID, review_note: Optional[str]) -> dict:
-    item = await get_candidate(db, candidate_id)
-    if item.status != CandidateStatus.PENDING:
-        raise HTTPException(status_code=409, detail="只有 pending 候选可以拒绝")
-    item.status = CandidateStatus.REJECTED
-    item.reviewed_at = datetime.utcnow()
-    item.review_note = (review_note or "").strip() or None
-    await db.commit()
+    await ensure_review_schema()
+    try:
+        item = (
+            await db.execute(
+                select(ExtractionCandidate)
+                .where(ExtractionCandidate.id == candidate_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if not item:
+            raise HTTPException(status_code=404, detail="候选记录不存在")
+        if item.status != CandidateStatus.PENDING:
+            raise HTTPException(status_code=409, detail="只有 pending 候选可以拒绝")
+        item.status = CandidateStatus.REJECTED
+        item.reviewed_at = utcnow()
+        item.review_note = (review_note or "").strip() or None
+        await db.commit()
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception:
+        await db.rollback()
+        raise
     return candidate_to_dict(await get_candidate(db, item.id), include_detail=True)

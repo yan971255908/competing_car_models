@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { CheckCircle2, FileSearch, Loader2, RefreshCw, Save, Search, XCircle } from 'lucide-react';
 import { Button, GlassCard } from '@/components/ui';
 import { competitors } from '@/lib/api';
-import type { CandidateOrigin, CandidateStatus, CandidateSummary, ExtractionCandidate } from '@/types/competitorReview';
+import type { CandidateOrigin, CandidateStatus, CandidateSummary, CandidateUpdatePayload, ExtractionCandidate } from '@/types/competitorReview';
 
 const statusLabel: Record<CandidateStatus, string> = { pending: '待审核', approved: '已批准', rejected: '已拒绝' };
 const originLabel: Record<CandidateOrigin, string> = { manual: '人工', ai: 'AI' };
@@ -27,12 +27,12 @@ function candidateTitle(candidate: ExtractionCandidate) {
   return { vehicle, technology };
 }
 
-function TextInput({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
-  return <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">{label}<input type={type} value={value} onChange={(event) => onChange(event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400/50" /></label>;
+function TextInput({ label, value, onChange, type = 'text', disabled = false }: { label: string; value: string; onChange: (value: string) => void; type?: string; disabled?: boolean }) {
+  return <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">{label}<input type={type} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400/50 disabled:opacity-50" /></label>;
 }
 
-function TextArea({ label, value, onChange, rows = 4 }: { label: string; value: string; onChange: (value: string) => void; rows?: number }) {
-  return <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">{label}<textarea value={value} rows={rows} onChange={(event) => onChange(event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400/50" /></label>;
+function TextArea({ label, value, onChange, rows = 4, disabled = false }: { label: string; value: string; onChange: (value: string) => void; rows?: number; disabled?: boolean }) {
+  return <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">{label}<textarea value={value} rows={rows} disabled={disabled} onChange={(event) => onChange(event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400/50 disabled:opacity-50" /></label>;
 }
 
 export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }: Props) {
@@ -43,7 +43,12 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
   const [filters, setFilters] = useState<{ status: string; origin: string; keyword: string }>({ status: 'pending', origin: '', keyword: '' });
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isReviewing, setIsReviewing] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [createMissingVehicle, setCreateMissingVehicle] = useState(true);
+  const [createMissingTechnology, setCreateMissingTechnology] = useState(true);
   const [error, setError] = useState('');
+  const controlsDisabled = detail?.status !== 'pending' || isSaving || isReviewing;
 
   const loadReviews = async (keepDetailId?: string) => {
     setIsLoading(true); setError('');
@@ -68,8 +73,6 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
   const openDetail = (candidate: ExtractionCandidate) => {
     setDetail(candidate);
     setForm({
-      source_document_id: candidate.source_document_id,
-      origin: candidate.origin || 'manual',
       proposed_brand_name: candidate.proposed_brand_name || '',
       proposed_model_name: candidate.proposed_model_name || '',
       matched_vehicle_id: candidate.matched_vehicle_id || '',
@@ -83,9 +86,13 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
       confidence: String(candidate.confidence ?? 0.8),
       review_note: candidate.review_note || '',
     });
+    setDirty(false);
+    setCreateMissingVehicle(true);
+    setCreateMissingTechnology(true);
   };
 
   const loadDetail = async (id: string) => {
+    if (detail?.id !== id && dirty && !window.confirm('当前候选存在未保存修改，确定放弃并切换吗？')) return;
     try {
       openDetail(await competitors.reviewCandidateDetail(id));
     } catch (err: unknown) {
@@ -95,11 +102,12 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
 
   useEffect(() => { loadReviews(); }, []);
 
-  const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  const set = (key: string, value: string) => {
+    setForm((current) => ({ ...current, [key]: value }));
+    setDirty(true);
+  };
 
-  const buildPayload = () => ({
-    source_document_id: form.source_document_id,
-    origin: form.origin || 'manual',
+  const buildPayload = (): CandidateUpdatePayload => ({
     proposed_brand_name: form.proposed_brand_name || null,
     proposed_model_name: form.proposed_model_name || null,
     matched_vehicle_id: form.matched_vehicle_id || null,
@@ -115,16 +123,29 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
     review_note: form.review_note || null,
   });
 
-  const save = async () => {
-    if (!detail) return;
-    if (detail.status !== 'pending') return setError('已审核候选不能编辑');
+  const validateForm = () => {
     const confidence = Number(form.confidence);
-    if (!form.evidence_text?.trim()) return setError('证据文本不能为空');
-    if (Number.isNaN(confidence) || confidence < 0 || confidence > 1) return setError('置信度必须在 0 到 1 之间');
+    if (!form.evidence_text?.trim()) return '证据文本不能为空';
+    if (!form.matched_vehicle_id && !form.proposed_model_name?.trim()) return '请选择已有车型或填写候选车型名称';
+    if (!form.matched_technology_id && !form.proposed_technology_name?.trim()) return '请选择已有技术点或填写候选技术点名称';
+    if (Number.isNaN(confidence) || confidence < 0 || confidence > 1) return '置信度必须在 0 到 1 之间';
+    return '';
+  };
+
+  const persistCurrentForm = async () => {
+    if (!detail) throw new Error('请先选择候选');
+    if (detail.status !== 'pending') throw new Error('已审核候选不能编辑');
+    const validationError = validateForm();
+    if (validationError) throw new Error(validationError);
+    const updated = await competitors.updateReviewCandidate(detail.id, buildPayload());
+    openDetail(updated);
+    return updated as ExtractionCandidate;
+  };
+
+  const save = async () => {
     setIsSaving(true); setError('');
     try {
-      const updated = await competitors.updateReviewCandidate(detail.id, buildPayload());
-      openDetail(updated);
+      const updated = await persistCurrentForm();
       await loadReviews(updated.id);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '保存候选失败');
@@ -135,11 +156,13 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
 
   const approve = async () => {
     if (!detail) return;
-    setIsSaving(true); setError('');
+    if (detail.status !== 'pending') return setError('只有待审核候选可以批准');
+    setIsReviewing(true); setError('');
     try {
-      const updated = await competitors.approveReviewCandidate(detail.id, {
-        create_missing_vehicle: true,
-        create_missing_technology: true,
+      const candidate = dirty ? await persistCurrentForm() : detail;
+      const updated = await competitors.approveReviewCandidate(candidate.id, {
+        create_missing_vehicle: createMissingVehicle,
+        create_missing_technology: createMissingTechnology,
         review_note: form.review_note || '',
       });
       openDetail(updated);
@@ -148,13 +171,14 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '批准入库失败');
     } finally {
-      setIsSaving(false);
+      setIsReviewing(false);
     }
   };
 
   const reject = async () => {
     if (!detail) return;
-    setIsSaving(true); setError('');
+    if (detail.status !== 'pending') return setError('只有待审核候选可以拒绝');
+    setIsReviewing(true); setError('');
     try {
       const updated = await competitors.rejectReviewCandidate(detail.id, { review_note: form.review_note || '' });
       openDetail(updated);
@@ -162,7 +186,7 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '拒绝候选失败');
     } finally {
-      setIsSaving(false);
+      setIsReviewing(false);
     }
   };
 
@@ -206,23 +230,28 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
               <pre className="max-h-[180px] overflow-y-auto custom-scrollbar whitespace-pre-wrap bg-black/20 border border-white/10 rounded p-3 text-[11px] leading-relaxed text-white/65">{detail.source_document?.raw_text || '无正文'}</pre>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">匹配已有车型<select disabled={detail.status !== 'pending'} value={form.matched_vehicle_id || ''} onChange={(event) => set('matched_vehicle_id', event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white"><option value="">不匹配，按候选车型处理</option>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.brand_name} {vehicle.model_name}</option>)}</select></label>
-              <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">匹配已有技术点<select disabled={detail.status !== 'pending'} value={form.matched_technology_id || ''} onChange={(event) => set('matched_technology_id', event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white"><option value="">不匹配，按候选技术点处理</option>{technologies.map((technology) => <option key={technology.id} value={technology.id}>{technology.name}</option>)}</select></label>
-              <TextInput label="候选品牌" value={form.proposed_brand_name || ''} onChange={(value) => set('proposed_brand_name', value)} />
-              <TextInput label="候选车型" value={form.proposed_model_name || ''} onChange={(value) => set('proposed_model_name', value)} />
-              <TextInput label="候选技术点" value={form.proposed_technology_name || ''} onChange={(value) => set('proposed_technology_name', value)} />
-              <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">技术类别<select disabled={detail.status !== 'pending'} value={form.technology_category || 'other'} onChange={(event) => set('technology_category', event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white">{categoryOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-              <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">成熟度<select disabled={detail.status !== 'pending'} value={form.maturity_level || 'concept'} onChange={(event) => set('maturity_level', event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white">{maturityOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-              <TextInput label="置信度（0-1）" type="number" value={form.confidence || '0.8'} onChange={(value) => set('confidence', value)} />
-              <TextInput label="页码或时间" value={form.page_or_time || ''} onChange={(value) => set('page_or_time', value)} />
+              <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">匹配已有车型<select disabled={controlsDisabled} value={form.matched_vehicle_id || ''} onChange={(event) => set('matched_vehicle_id', event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white disabled:opacity-50"><option value="">不匹配，按候选车型处理</option>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.brand_name} {vehicle.model_name}</option>)}</select></label>
+              <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">匹配已有技术点<select disabled={controlsDisabled} value={form.matched_technology_id || ''} onChange={(event) => set('matched_technology_id', event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white disabled:opacity-50"><option value="">不匹配，按候选技术点处理</option>{technologies.map((technology) => <option key={technology.id} value={technology.id}>{technology.name}</option>)}</select></label>
+              <TextInput disabled={controlsDisabled} label="候选品牌" value={form.proposed_brand_name || ''} onChange={(value) => set('proposed_brand_name', value)} />
+              <TextInput disabled={controlsDisabled} label="候选车型" value={form.proposed_model_name || ''} onChange={(value) => set('proposed_model_name', value)} />
+              <TextInput disabled={controlsDisabled} label="候选技术点" value={form.proposed_technology_name || ''} onChange={(value) => set('proposed_technology_name', value)} />
+              <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">技术类别<select disabled={controlsDisabled} value={form.technology_category || 'other'} onChange={(event) => set('technology_category', event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white disabled:opacity-50">{categoryOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+              <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">成熟度<select disabled={controlsDisabled} value={form.maturity_level || 'concept'} onChange={(event) => set('maturity_level', event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white disabled:opacity-50">{maturityOptions.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+              <TextInput disabled={controlsDisabled} label="置信度（0-1）" type="number" value={form.confidence || '0.8'} onChange={(value) => set('confidence', value)} />
+              <TextInput disabled={controlsDisabled} label="页码或时间" value={form.page_or_time || ''} onChange={(value) => set('page_or_time', value)} />
             </div>
-            <TextArea label="技术说明" value={form.technology_description || ''} onChange={(value) => set('technology_description', value)} />
-            <TextArea label="证据文本 *" rows={5} value={form.evidence_text || ''} onChange={(value) => set('evidence_text', value)} />
-            <TextArea label="审核备注" rows={3} value={form.review_note || ''} onChange={(value) => set('review_note', value)} />
+            <TextArea disabled={controlsDisabled} label="技术说明" value={form.technology_description || ''} onChange={(value) => set('technology_description', value)} />
+            <TextArea disabled={controlsDisabled} label="证据文本 *" rows={5} value={form.evidence_text || ''} onChange={(value) => set('evidence_text', value)} />
+            <TextArea disabled={controlsDisabled} label="审核备注" rows={3} value={form.review_note || ''} onChange={(value) => set('review_note', value)} />
+            {detail.status === 'pending' && <div className="grid grid-cols-1 md:grid-cols-2 gap-2 rounded border border-white/10 bg-white/[0.02] p-3">
+              <label className="flex items-center gap-2 text-xs text-white/65"><input type="checkbox" checked={createMissingVehicle} disabled={isReviewing} onChange={(event) => setCreateMissingVehicle(event.target.checked)} className="accent-cyan-400" />找不到车型时允许自动创建</label>
+              <label className="flex items-center gap-2 text-xs text-white/65"><input type="checkbox" checked={createMissingTechnology} disabled={isReviewing} onChange={(event) => setCreateMissingTechnology(event.target.checked)} className="accent-cyan-400" />找不到技术点时允许自动创建</label>
+            </div>}
+            {dirty && detail.status === 'pending' && <div className="text-xs text-amber-300">存在未保存修改</div>}
             <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={save} disabled={detail.status !== 'pending' || isSaving}><Save size={14} />保存修改</Button>
-              <Button size="sm" onClick={approve} disabled={detail.status !== 'pending' || isSaving}><CheckCircle2 size={14} />批准入库</Button>
-              <Button variant="ghost" className="text-rose-200 hover:text-rose-100 hover:bg-rose-500/10" size="sm" onClick={reject} disabled={detail.status !== 'pending' || isSaving}><XCircle size={14} />拒绝</Button>
+              <Button variant="ghost" size="sm" onClick={save} disabled={controlsDisabled || !dirty}>{isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}保存修改</Button>
+              <Button size="sm" onClick={approve} disabled={controlsDisabled}>{isReviewing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}{isReviewing ? '批准处理中' : '批准入库'}</Button>
+              <Button variant="ghost" className="text-rose-200 hover:text-rose-100 hover:bg-rose-500/10" size="sm" onClick={reject} disabled={controlsDisabled}><XCircle size={14} />拒绝</Button>
             </div>
           </div>
         </div>}

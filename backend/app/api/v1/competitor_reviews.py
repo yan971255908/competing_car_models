@@ -2,7 +2,7 @@ import uuid
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -26,8 +26,9 @@ from app.services.candidate_review_service import (
 router = APIRouter()
 
 
-class CandidatePayload(BaseModel):
-    source_document_id: uuid.UUID
+class CandidateBusinessPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     proposed_brand_name: Optional[str] = None
     proposed_model_name: Optional[str] = None
     matched_vehicle_id: Optional[uuid.UUID] = None
@@ -39,9 +40,17 @@ class CandidatePayload(BaseModel):
     evidence_text: str
     page_or_time: Optional[str] = None
     confidence: float = Field(default=0.8, ge=0, le=1)
-    origin: CandidateOrigin = CandidateOrigin.MANUAL
     raw_payload: dict[str, Any] = Field(default_factory=dict)
     review_note: Optional[str] = None
+
+
+class CandidateCreatePayload(CandidateBusinessPayload):
+    source_document_id: uuid.UUID
+    origin: CandidateOrigin = CandidateOrigin.MANUAL
+
+
+class CandidateUpdatePayload(CandidateBusinessPayload):
+    pass
 
 
 class CandidateApprovePayload(BaseModel):
@@ -81,7 +90,7 @@ async def review_candidates(
 
 
 @router.post("/candidates")
-async def create_review_candidate(payload: CandidatePayload, db: AsyncSession = Depends(get_db)):
+async def create_review_candidate(payload: CandidateCreatePayload, db: AsyncSession = Depends(get_db)):
     return await create_candidate(db, payload)
 
 
@@ -93,7 +102,7 @@ async def review_candidate_detail(candidate_id: uuid.UUID, db: AsyncSession = De
 @router.put("/candidates/{candidate_id}")
 async def update_review_candidate(
     candidate_id: uuid.UUID,
-    payload: CandidatePayload,
+    payload: CandidateUpdatePayload,
     db: AsyncSession = Depends(get_db),
 ):
     return await update_candidate(db, candidate_id, payload)

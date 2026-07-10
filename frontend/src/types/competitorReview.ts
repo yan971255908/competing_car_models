@@ -65,3 +65,24 @@ export interface CandidateApprovePayload {
   create_missing_technology: boolean;
   review_note?: string;
 }
+
+export interface CandidateUpdatePayload {
+  proposed_brand_name?: string | null;
+  proposed_model_name?: string | null;
+  matched_vehicle_id?: string | null;
+  proposed_technology_name?: string | null;
+  technology_category: string;
+  technology_description?: string | null;
+  maturity_level: string;
+  matched_technology_id?: string | null;
+  evidence_text: string;
+  page_or_time?: string | null;
+  confidence: number;
+  raw_payload?: Record<string, unknown>;
+  review_note?: string | null;
+}
+
+export interface CandidateCreatePayload extends CandidateUpdatePayload {
+  source_document_id: string;
+  origin?: CandidateOrigin;
+}

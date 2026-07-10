@@ -2,6 +2,8 @@
 // AutoPrism - Centralized API Client
 // 合并版：保留原项目 Mock 面板 + 补充真实后端请求能力
 
+import type { CandidateApprovePayload, CandidateCreatePayload, CandidateUpdatePayload } from '@/types/competitorReview';
+
 export const API_BASE_URL = '/api/v1';
 
 // ============================================
@@ -361,17 +363,17 @@ export const competitors = {
 
   reviewCandidateDetail: async (id: string, ...args: any[]) => request(`/competitors/reviews/candidates/${encodeURIComponent(id)}`),
 
-  createReviewCandidate: async (payload: any, ...args: any[]) => request('/competitors/reviews/candidates', {
+  createReviewCandidate: async (payload: CandidateCreatePayload, ...args: any[]) => request('/competitors/reviews/candidates', {
     method: 'POST',
     body: JSON.stringify(payload),
   }),
 
-  updateReviewCandidate: async (id: string, payload: any, ...args: any[]) => request(`/competitors/reviews/candidates/${encodeURIComponent(id)}`, {
+  updateReviewCandidate: async (id: string, payload: CandidateUpdatePayload, ...args: any[]) => request(`/competitors/reviews/candidates/${encodeURIComponent(id)}`, {
     method: 'PUT',
     body: JSON.stringify(payload),
   }),
 
-  approveReviewCandidate: async (id: string, payload: any, ...args: any[]) => request(`/competitors/reviews/candidates/${encodeURIComponent(id)}/approve`, {
+  approveReviewCandidate: async (id: string, payload: CandidateApprovePayload, ...args: any[]) => request(`/competitors/reviews/candidates/${encodeURIComponent(id)}/approve`, {
     method: 'POST',
     body: JSON.stringify(payload),
   }),
