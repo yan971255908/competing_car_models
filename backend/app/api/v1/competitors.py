@@ -420,12 +420,28 @@ async def upload_text_source(
 
 
 @router.get("/sources")
-async def list_sources(db: AsyncSession = Depends(get_db)):
+async def list_sources(
+    title: Optional[str] = None,
+    source_type: Optional[SourceDocumentType] = None,
+    has_evidence: Optional[bool] = None,
+    db: AsyncSession = Depends(get_db),
+):
     await ensure_competitor_schema(db)
-    result = await db.execute(
+    stmt = (
         select(SourceDocument)
         .options(selectinload(SourceDocument.evidence_items))
         .order_by(SourceDocument.created_at.desc())
+    )
+    if title and title.strip():
+        stmt = stmt.where(SourceDocument.title.ilike(f"%{title.strip()}%"))
+    if source_type:
+        stmt = stmt.where(SourceDocument.source_type == source_type)
+    if has_evidence is True:
+        stmt = stmt.where(SourceDocument.evidence_items.any())
+    elif has_evidence is False:
+        stmt = stmt.where(~SourceDocument.evidence_items.any())
+    result = await db.execute(
+        stmt
     )
     return [source_document_to_dict(item) for item in result.scalars().all()]
 
@@ -446,6 +462,61 @@ async def get_source(source_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     if not item:
         raise HTTPException(status_code=404, detail="来源文档不存在")
     return source_document_to_dict(item, include_detail=True)
+
+
+@router.put("/sources/{source_id}")
+async def update_source(
+    source_id: uuid.UUID,
+    payload: TextSourcePayload,
+    db: AsyncSession = Depends(get_db),
+):
+    await ensure_competitor_schema(db)
+    if payload.source_type not in TEXT_SOURCE_TYPES:
+        raise HTTPException(status_code=400, detail="文本资料不支持该来源类型")
+    if not payload.title.strip():
+        raise HTTPException(status_code=400, detail="标题不能为空")
+    if not payload.raw_text.strip():
+        raise HTTPException(status_code=400, detail="正文不能为空")
+
+    result = await db.execute(
+        select(SourceDocument)
+        .options(
+            selectinload(SourceDocument.evidence_items).selectinload(Evidence.source_document),
+            selectinload(SourceDocument.evidence_items).selectinload(Evidence.vehicle),
+            selectinload(SourceDocument.evidence_items).selectinload(Evidence.technology),
+        )
+        .where(SourceDocument.id == source_id)
+    )
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="来源文档不存在")
+
+    item.title = payload.title.strip()
+    item.source_type = payload.source_type
+    item.source_url = payload.source_url.strip() if payload.source_url else None
+    item.raw_text = payload.raw_text
+    item.file_name = payload.file_name.strip()[:255] if payload.file_name else None
+    await db.commit()
+    return source_document_to_dict(item, include_detail=True)
+
+
+@router.delete("/sources/{source_id}")
+async def delete_source(source_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    await ensure_competitor_schema(db)
+    result = await db.execute(
+        select(SourceDocument)
+        .options(selectinload(SourceDocument.evidence_items))
+        .where(SourceDocument.id == source_id)
+    )
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="来源文档不存在")
+    if item.evidence_items:
+        raise HTTPException(status_code=409, detail="该来源文档已有关联证据，请先删除或迁移证据")
+
+    await db.delete(item)
+    await db.commit()
+    return {"status": "ok", "deleted_id": str(source_id)}
 
 
 @router.get("/evidence")

@@ -37,9 +37,9 @@ function VehicleDetailDrawer({ vehicle, onClose, onEdit }: { vehicle: any | null
   if (!vehicle) return null;
   return <div className="fixed inset-y-0 right-0 z-[90] w-full max-w-[430px] bg-[#101026]/95 border-l border-white/10 shadow-2xl backdrop-blur-xl flex flex-col"><div className="px-5 py-4 border-b border-white/10 flex items-start gap-3"><div className="w-9 h-9 rounded-lg bg-cyan-500/15 border border-cyan-500/20 flex items-center justify-center text-cyan-200"><Layers size={18} /></div><div className="min-w-0"><div className="text-[10px] text-white/30 font-black tracking-widest">车型详情</div><div className="text-lg font-black text-white truncate">{getVehicleName(vehicle)}</div></div><button onClick={() => onEdit(vehicle)} className="ml-auto p-2 rounded-lg hover:bg-white/10 text-white/45 hover:text-white"><Edit3 size={16} /></button><button onClick={onClose} className="p-2 rounded-lg hover:bg-white/10 text-white/45 hover:text-white"><X size={18} /></button></div><div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-5"><GlassCard className="p-4 border-white/10"><DetailRow label="品牌" value={vehicle.brand_name} /><DetailRow label="车型" value={vehicle.model_name} /><DetailRow label="能源类型" value={vehicle.energy_type} /><DetailRow label="市场级别" value={vehicle.market_segment} /><DetailRow label="上市年份" value={vehicle.launch_year} /><DetailRow label="指导价" value={formatPrice(vehicle.base_price)} /><DetailRow label="规格参数" value={<pre className="whitespace-pre-wrap font-mono text-[10px] text-cyan-100/70">{JSON.stringify(vehicle.specs || {}, null, 2)}</pre>} /></GlassCard><GlassCard className="p-4 border-white/10"><div className="text-[11px] font-black text-white/70 tracking-widest mb-3">关联技术点</div>{(vehicle.technologies || []).length === 0 ? <div className="text-[11px] text-white/30">暂无关联技术点</div> : vehicle.technologies.map((tech: any) => <div key={tech.id} className="mb-3 last:mb-0"><div className="text-sm font-bold text-white/85">{tech.name}</div><div className="mt-1 flex gap-1.5"><span className="px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-200 text-[10px]">{categoryLabel[tech.category] || tech.category}</span><span className="px-1.5 py-0.5 rounded bg-white/5 text-white/45 text-[10px]">{maturityLabel[tech.maturity_level] || tech.maturity_level}</span></div></div>)}</GlassCard><GlassCard className="p-4 border-white/10"><div className="text-[11px] font-black text-white/70 tracking-widest mb-3">关联证据</div>{(vehicle.evidence || []).length === 0 ? <div className="text-[11px] text-white/30">暂无关联证据</div> : vehicle.evidence.map((item: any) => <div key={item.id} className="py-3 border-b border-white/5 last:border-b-0"><div className="text-[11px] text-white/75 leading-relaxed">{item.evidence_text}</div><div className="mt-2 text-[9px] text-white/30 font-mono">{item.page_or_time || 'NA'} · 置信度 {(Number(item.confidence || 0) * 100).toFixed(0)}%</div></div>)}</GlassCard></div></div>;
 }
-function EvidenceDetailDrawer({ evidence, onClose }: { evidence: any | null; onClose: () => void }) {
+function EvidenceDetailDrawer({ evidence, onClose, onViewSource }: { evidence: any | null; onClose: () => void; onViewSource: (sourceId: string) => void }) {
   if (!evidence) return null;
-  return <div className="fixed inset-y-0 right-0 z-[91] w-full max-w-[410px] bg-[#101026]/95 border-l border-white/10 shadow-2xl backdrop-blur-xl flex flex-col"><div className="px-5 py-4 border-b border-white/10 flex items-center gap-3"><FileText size={18} className="text-amber-300" /><div><div className="text-[10px] text-white/30 font-black tracking-widest">证据详情</div><div className="text-sm font-bold text-white">{sourceTypeLabel[evidence.source_document?.source_type] || '未知来源'}</div></div><button onClick={onClose} className="ml-auto p-2 rounded-lg hover:bg-white/10 text-white/45 hover:text-white"><X size={18} /></button></div><div className="p-5 overflow-y-auto custom-scrollbar space-y-4"><GlassCard className="p-4 border-white/10"><DetailRow label="证据文本" value={evidence.evidence_text} /><DetailRow label="关联车型" value={getVehicleName(evidence.vehicle)} /><DetailRow label="关联技术" value={getTechnologyName(evidence.technology)} /><DetailRow label="来源类型" value={sourceTypeLabel[evidence.source_document?.source_type] || evidence.source_document?.source_type} /><DetailRow label="页码/时间" value={evidence.page_or_time} /><DetailRow label="置信度" value={`${(Number(evidence.confidence || 0) * 100).toFixed(0)}%`} /></GlassCard></div></div>;
+  return <div className="fixed inset-y-0 right-0 z-[91] w-full max-w-[410px] bg-[#101026]/95 border-l border-white/10 shadow-2xl backdrop-blur-xl flex flex-col"><div className="px-5 py-4 border-b border-white/10 flex items-center gap-3"><FileText size={18} className="text-amber-300" /><div><div className="text-[10px] text-white/30 font-black tracking-widest">证据详情</div><div className="text-sm font-bold text-white">{sourceTypeLabel[evidence.source_document?.source_type] || '未知来源'}</div></div><button onClick={onClose} className="ml-auto p-2 rounded-lg hover:bg-white/10 text-white/45 hover:text-white"><X size={18} /></button></div><div className="p-5 overflow-y-auto custom-scrollbar space-y-4"><GlassCard className="p-4 border-white/10"><DetailRow label="证据文本" value={evidence.evidence_text} /><DetailRow label="关联车型" value={getVehicleName(evidence.vehicle)} /><DetailRow label="关联技术" value={getTechnologyName(evidence.technology)} /><DetailRow label="来源类型" value={sourceTypeLabel[evidence.source_document?.source_type] || evidence.source_document?.source_type} /><DetailRow label="来源文档" value={evidence.source_document?.title} /><DetailRow label="页码/时间" value={evidence.page_or_time} /><DetailRow label="置信度" value={`${(Number(evidence.confidence || 0) * 100).toFixed(0)}%`} /></GlassCard>{evidence.source_document?.id && <Button size="sm" className="w-full" onClick={() => onViewSource(evidence.source_document.id)}><BookOpen size={14} />查看来源文档</Button>}</div></div>;
 }
 
 function MaintenanceModal({ type, initial, vehicles, technologies, onClose, onSave }: any) {
@@ -164,28 +164,82 @@ function ExcelImportModal({ onClose, onImported }: { onClose: () => void; onImpo
   </div>;
 }
 
-function TextSourceModal({ vehicles, technologies, onClose, onEvidenceCreated }: any) {
+function TextSourceModal({ vehicles, technologies, initialSourceId, onClose, onEvidenceCreated }: any) {
   const textSourceTypes = ['press_release', 'official_site', 'webpage', 'transcript', 'manual'];
   const [sources, setSources] = useState<any[]>([]);
   const [detail, setDetail] = useState<any | null>(null);
   const [sourceForm, setSourceForm] = useState({ title: '', source_type: 'press_release', source_url: '', raw_text: '' });
   const [evidenceForm, setEvidenceForm] = useState({ vehicle_id: '', technology_id: '', evidence_text: '', page_or_time: '', confidence: '0.8' });
   const [textFile, setTextFile] = useState<File | null>(null);
+  const [sourceSearch, setSourceSearch] = useState('');
+  const [sourceTypeFilter, setSourceTypeFilter] = useState('');
+  const [hasEvidenceFilter, setHasEvidenceFilter] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
 
   const loadSources = async (preferredId?: string) => {
-    const rows = await competitors.sources();
+    const rows = await competitors.sources({
+      title: sourceSearch,
+      source_type: sourceTypeFilter,
+      has_evidence: hasEvidenceFilter,
+    });
     setSources(rows || []);
-    const targetId = preferredId || detail?.id || rows?.[0]?.id;
-    if (targetId) setDetail(await competitors.sourceDetail(targetId));
+    const targetId = preferredId && rows?.some((row: any) => row.id === preferredId) ? preferredId : rows?.[0]?.id;
+    if (targetId) setDetail(await competitors.sourceDetail(targetId)); else setDetail(null);
   };
-  useEffect(() => { loadSources().catch((err: any) => setError(err?.message || '来源文档加载失败')).finally(() => setIsLoading(false)); }, []);
+  useEffect(() => { loadSources(initialSourceId).catch((err: any) => setError(err?.message || '来源文档加载失败')).finally(() => setIsLoading(false)); }, []);
   const openSource = async (id: string) => {
     setError('');
+    setIsEditing(false);
     try { setDetail(await competitors.sourceDetail(id)); }
     catch (err: any) { setError(err?.message || '来源文档详情加载失败'); }
+  };
+  const applySourceFilters = async () => {
+    setIsLoading(true); setError('');
+    try { await loadSources(); }
+    catch (err: any) { setError(err?.message || '来源文档筛选失败'); }
+    finally { setIsLoading(false); }
+  };
+  const beginEdit = () => {
+    if (!detail) return;
+    setEditForm({
+      title: detail.title || '',
+      source_type: detail.source_type || 'manual',
+      source_url: detail.source_url || '',
+      raw_text: detail.raw_text || '',
+      file_name: detail.file_name || '',
+    });
+    setIsEditing(true);
+  };
+  const saveEdit = async () => {
+    if (!detail || !editForm?.title?.trim()) return setError('标题不能为空');
+    if (!editForm?.raw_text?.trim()) return setError('正文不能为空');
+    setIsSaving(true); setError('');
+    try {
+      const updated = await competitors.updateSource(detail.id, {
+        ...editForm,
+        source_url: editForm.source_url || null,
+        file_name: editForm.file_name || null,
+      });
+      setDetail(updated);
+      setIsEditing(false);
+      await loadSources(updated.id);
+    } catch (err: any) { setError(err?.message || '来源文档更新失败'); }
+    finally { setIsSaving(false); }
+  };
+  const deleteSource = async () => {
+    if (!detail || !window.confirm(`确认删除来源文档“${detail.title}”吗？`)) return;
+    setIsSaving(true); setError('');
+    try {
+      await competitors.deleteSource(detail.id);
+      setDetail(null);
+      setIsEditing(false);
+      await loadSources();
+    } catch (err: any) { setError(err?.message || '来源文档删除失败'); }
+    finally { setIsSaving(false); }
   };
   const saveTextSource = async () => {
     if (!sourceForm.title.trim()) return setError('标题不能为空');
@@ -249,11 +303,19 @@ function TextSourceModal({ vehicles, technologies, onClose, onEvidenceCreated }:
           </div>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4 min-h-[480px]">
-          <div className="border border-white/10 rounded overflow-hidden flex flex-col"><div className="px-4 py-3 bg-white/[0.03] text-[11px] font-bold text-white/70">来源文档列表 · {sources.length}</div><div className="flex-1 max-h-[620px] overflow-y-auto custom-scrollbar divide-y divide-white/5">{isLoading ? <div className="p-8 flex justify-center"><Loader2 className="animate-spin text-cyan-300" /></div> : sources.length === 0 ? <div className="p-8 text-center text-[11px] text-white/30">暂无来源文档</div> : sources.map((source) => <button key={source.id} onClick={() => openSource(source.id)} className={`w-full text-left px-4 py-3 hover:bg-white/[0.04] ${detail?.id === source.id ? 'bg-cyan-500/[0.08]' : ''}`}><div className="text-xs font-bold text-white/80 line-clamp-2">{source.title}</div><div className="mt-2 flex flex-wrap gap-1"><span className="px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-200 text-[9px]">{sourceTypeLabel[source.source_type] || source.source_type}</span>{source.file_name && <span className="px-1.5 py-0.5 rounded bg-white/5 text-white/40 text-[9px]">{source.file_name}</span>}</div><div className="mt-2 flex justify-between text-[9px] text-white/30"><span>{source.raw_text_length} 字</span><span>{source.evidence_count} 条证据</span></div><div className="mt-1 text-[9px] text-white/20">{source.created_at ? new Date(source.created_at).toLocaleString() : ''}</div></button>)}</div></div>
-          <div className="border border-white/10 rounded overflow-hidden">{!detail ? <div className="h-full flex items-center justify-center text-xs text-white/30">选择来源文档查看详情</div> : <div className="h-full flex flex-col"><div className="px-4 py-3 bg-white/[0.03] border-b border-white/10"><div className="text-sm font-bold text-white/85">{detail.title}</div><div className="mt-1 text-[10px] text-white/35">{sourceTypeLabel[detail.source_type] || detail.source_type}{detail.source_url ? ` · ${detail.source_url}` : ''}</div></div><div className="p-4 space-y-4 overflow-y-auto custom-scrollbar">
-            <div><div className="text-[10px] font-bold text-white/45 mb-2">原始正文</div><pre className="max-h-[260px] overflow-y-auto custom-scrollbar whitespace-pre-wrap select-text bg-black/20 border border-white/10 rounded p-3 text-[11px] leading-relaxed text-white/70">{detail.raw_text}</pre></div>
+          <div className="border border-white/10 rounded overflow-hidden flex flex-col">
+            <div className="px-4 py-3 bg-white/[0.03] text-[11px] font-bold text-white/70">来源文档列表 · {sources.length}</div>
+            <div className="p-3 border-b border-white/10 space-y-2">
+              <label className="flex items-center gap-2 bg-white/5 border border-white/10 rounded px-2 py-1.5"><Search size={12} className="text-white/30" /><input value={sourceSearch} onChange={(event) => setSourceSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') applySourceFilters(); }} placeholder="搜索来源文档标题" className="bg-transparent outline-none text-xs text-white placeholder-white/25 flex-1" /></label>
+              <div className="grid grid-cols-2 gap-2"><select aria-label="来源类型筛选" value={sourceTypeFilter} onChange={(event) => setSourceTypeFilter(event.target.value)} className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-[10px] text-white"><option value="">全部来源类型</option>{sourceTypeOptions.map((type) => <option key={type} value={type}>{sourceTypeLabel[type] || type}</option>)}</select><select aria-label="证据状态筛选" value={hasEvidenceFilter} onChange={(event) => setHasEvidenceFilter(event.target.value)} className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-[10px] text-white"><option value="">全部证据状态</option><option value="true">已有证据</option><option value="false">暂无证据</option></select></div>
+              <Button variant="ghost" size="sm" className="w-full" onClick={applySourceFilters}><Filter size={13} />应用筛选</Button>
+            </div>
+            <div className="flex-1 max-h-[620px] overflow-y-auto custom-scrollbar divide-y divide-white/5">{isLoading ? <div className="p-8 flex justify-center"><Loader2 className="animate-spin text-cyan-300" /></div> : sources.length === 0 ? <div className="p-8 text-center text-[11px] text-white/30">暂无来源文档</div> : sources.map((source) => <button key={source.id} onClick={() => openSource(source.id)} className={`w-full text-left px-4 py-3 hover:bg-white/[0.04] ${detail?.id === source.id ? 'bg-cyan-500/[0.08]' : ''}`}><div className="text-xs font-bold text-white/80 line-clamp-2">{source.title}</div><div className="mt-2 flex flex-wrap gap-1"><span className="px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-200 text-[9px]">{sourceTypeLabel[source.source_type] || source.source_type}</span>{source.file_name && <span className="px-1.5 py-0.5 rounded bg-white/5 text-white/40 text-[9px]">{source.file_name}</span>}</div>{source.source_url && <div className="mt-2 text-[9px] text-cyan-200/45 truncate">{source.source_url}</div>}<div className="mt-2 flex justify-between text-[9px] text-white/30"><span>{source.raw_text_length} 字</span><span>{source.evidence_count} 条证据</span></div><div className="mt-1 text-[9px] text-white/20">{source.created_at ? new Date(source.created_at).toLocaleString() : ''}</div></button>)}</div>
+          </div>
+          <div className="border border-white/10 rounded overflow-hidden">{!detail ? <div className="h-full flex items-center justify-center text-xs text-white/30">选择来源文档查看详情</div> : <div className="h-full flex flex-col"><div className="px-4 py-3 bg-white/[0.03] border-b border-white/10 flex items-start gap-3"><div className="min-w-0"><div className="text-sm font-bold text-white/85 truncate">{detail.title}</div><div className="mt-1 text-[10px] text-white/35 truncate">{sourceTypeLabel[detail.source_type] || detail.source_type}{detail.source_url ? ` · ${detail.source_url}` : ''}</div></div><div className="ml-auto flex items-center gap-1"><button title="编辑来源文档" onClick={beginEdit} className="p-2 rounded hover:bg-white/10 text-white/40 hover:text-cyan-200"><Edit3 size={14} /></button><button title="删除来源文档" onClick={deleteSource} className="p-2 rounded hover:bg-rose-500/10 text-white/40 hover:text-rose-300"><X size={14} /></button></div></div><div className="p-4 space-y-4 overflow-y-auto custom-scrollbar">
+            {isEditing && editForm ? <div className="border border-cyan-500/20 bg-cyan-500/[0.04] rounded p-3 space-y-3"><div className="text-[10px] font-bold text-cyan-200">编辑来源文档</div><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><TextInput label="标题 *" value={editForm.title} onChange={(value: string) => setEditForm({ ...editForm, title: value })} /><SelectInput label="来源类型" value={editForm.source_type} onChange={(value: string) => setEditForm({ ...editForm, source_type: value })} options={textSourceTypes} labels={sourceTypeLabel} /><TextInput label="来源 URL" value={editForm.source_url} onChange={(value: string) => setEditForm({ ...editForm, source_url: value })} /><TextInput label="文件名" value={editForm.file_name} onChange={(value: string) => setEditForm({ ...editForm, file_name: value })} /></div><TextArea label="正文内容 *" rows={6} value={editForm.raw_text} onChange={(value: string) => setEditForm({ ...editForm, raw_text: value })} /><div className="flex justify-end gap-2"><Button variant="ghost" size="sm" onClick={() => setIsEditing(false)}>取消</Button><Button size="sm" onClick={saveEdit} disabled={isSaving}><Save size={14} />保存修改</Button></div></div> : <div><div className="text-[10px] font-bold text-white/45 mb-2">原始正文</div><pre className="max-h-[260px] overflow-y-auto custom-scrollbar whitespace-pre-wrap select-text bg-black/20 border border-white/10 rounded p-3 text-[11px] leading-relaxed text-white/70">{detail.raw_text}</pre></div>}
             <div className="border-t border-white/10 pt-4 space-y-3"><div className="text-[10px] font-bold text-white/45">从本文档创建证据</div><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">关联车型<select value={evidenceForm.vehicle_id} onChange={(event) => setEvidenceForm({ ...evidenceForm, vehicle_id: event.target.value })} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white"><option value="">不绑定车型</option>{vehicles.map((vehicle: any) => <option key={vehicle.id} value={vehicle.id}>{getVehicleName(vehicle)}</option>)}</select></label><label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">关联技术点<select value={evidenceForm.technology_id} onChange={(event) => setEvidenceForm({ ...evidenceForm, technology_id: event.target.value })} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white"><option value="">不绑定技术点</option>{technologies.map((technology: any) => <option key={technology.id} value={technology.id}>{technology.name}</option>)}</select></label></div><TextArea label="证据文本 *" rows={4} value={evidenceForm.evidence_text} onChange={(value: string) => setEvidenceForm({ ...evidenceForm, evidence_text: value })} placeholder="从上方正文复制需要引用的段落" /><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><TextInput label="页码或时间" value={evidenceForm.page_or_time} onChange={(value: string) => setEvidenceForm({ ...evidenceForm, page_or_time: value })} /><TextInput label="置信度（0-1）" type="number" value={evidenceForm.confidence} onChange={(value: string) => setEvidenceForm({ ...evidenceForm, confidence: value })} /></div><div className="flex justify-end"><Button size="sm" onClick={createEvidence} disabled={isSaving}><Save size={14} />生成证据</Button></div></div>
-            <div className="border-t border-white/10 pt-4"><div className="text-[10px] font-bold text-white/45 mb-2">已创建证据 · {detail.evidence_items?.length || 0}</div><div className="space-y-2">{(detail.evidence_items || []).map((item: any) => <div key={item.id} className="border border-white/10 rounded p-3"><div className="text-[11px] text-white/70 leading-relaxed">{item.evidence_text}</div><div className="mt-2 text-[9px] text-white/30">{getVehicleName(item.vehicle)} · {getTechnologyName(item.technology)} · {(Number(item.confidence || 0) * 100).toFixed(0)}%</div></div>)}</div></div>
+            <div className="border-t border-white/10 pt-4"><div className="text-[10px] font-bold text-white/45 mb-2">已创建证据 · {detail.evidence_items?.length || 0}</div><div className="space-y-2">{(detail.evidence_items || []).map((item: any) => <div key={item.id} className="border border-white/10 rounded p-3"><div className="text-[11px] text-white/70 leading-relaxed">{item.evidence_text}</div><div className="mt-2 text-[9px] text-white/30">{getVehicleName(item.vehicle)} · {getTechnologyName(item.technology)}</div><div className="mt-1 flex justify-between gap-2 text-[9px] text-white/25"><span>{item.page_or_time || '未填写位置'} · {(Number(item.confidence || 0) * 100).toFixed(0)}%</span><span>{item.created_at ? new Date(item.created_at).toLocaleString() : ''}</span></div></div>)}</div></div>
           </div></div>}</div>
         </div>
       </div>
@@ -276,6 +338,7 @@ export const CompetitorLibrary: React.FC = () => {
   const [modal, setModal] = useState<any | null>(null);
   const [excelImportOpen, setExcelImportOpen] = useState(false);
   const [textSourceOpen, setTextSourceOpen] = useState(false);
+  const [textSourceTarget, setTextSourceTarget] = useState<string | null>(null);
   const [compareLeftId, setCompareLeftId] = useState('');
   const [compareRightId, setCompareRightId] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -306,7 +369,7 @@ export const CompetitorLibrary: React.FC = () => {
   return <div className="w-full relative">
     <div className="flex items-center justify-between mb-4 px-1"><div className="flex items-center gap-3"><div className="w-1 h-4 bg-cyan-400 rounded-full" /><h3 className="text-xs font-black text-white/50 tracking-[0.2em]">竞品库工作台</h3><span className="text-[10px] text-white/25">人工维护 / 搜索 / 对比</span></div><div className="flex items-center gap-2"><Button variant="ghost" size="sm" onClick={loadData} disabled={isLoading}><RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />刷新</Button><Button size="sm" onClick={seedData} disabled={isSeeding}>{isSeeding ? <Loader2 size={13} className="animate-spin" /> : <Database size={13} />}初始化示例数据</Button></div></div>
     <GlassCard className="mb-4 px-4 py-3 border-white/10 flex flex-col md:flex-row md:items-center gap-3"><div className="flex items-center gap-3"><div className="w-9 h-9 rounded bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center"><FileSpreadsheet size={17} className="text-emerald-300" /></div><div><div className="text-xs font-bold text-white/75">Excel 配置表导入</div><div className="text-[10px] text-white/30 mt-0.5">上传后先预览字段与数据，确认后再写入竞品库</div></div></div><div className="md:ml-auto flex items-center gap-2"><Button variant="ghost" size="sm" onClick={downloadTemplate}><Download size={14} />下载标准模板</Button><Button size="sm" onClick={() => setExcelImportOpen(true)}><FileSpreadsheet size={14} />Excel 导入</Button></div></GlassCard>
-    <GlassCard className="mb-4 px-4 py-3 border-white/10 flex flex-col md:flex-row md:items-center gap-3"><div className="flex items-center gap-3"><div className="w-9 h-9 rounded bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center"><BookOpen size={17} className="text-cyan-300" /></div><div><div className="text-xs font-bold text-white/75">文本资料导入</div><div className="text-[10px] text-white/30 mt-0.5">粘贴文本或上传 TXT，查看原文并手工绑定证据</div></div></div><Button size="sm" className="md:ml-auto" onClick={() => setTextSourceOpen(true)}><BookOpen size={14} />文本资料</Button></GlassCard>
+    <GlassCard className="mb-4 px-4 py-3 border-white/10 flex flex-col md:flex-row md:items-center gap-3"><div className="flex items-center gap-3"><div className="w-9 h-9 rounded bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center"><BookOpen size={17} className="text-cyan-300" /></div><div><div className="text-xs font-bold text-white/75">文本资料导入</div><div className="text-[10px] text-white/30 mt-0.5">粘贴文本或上传 TXT，查看原文并手工绑定证据</div></div></div><Button size="sm" className="md:ml-auto" onClick={() => { setTextSourceTarget(null); setTextSourceOpen(true); }}><BookOpen size={14} />文本资料</Button></GlassCard>
     {error && <GlassCard className="mb-4 px-4 py-3 border border-rose-500/30 text-rose-300 text-xs">{error}</GlassCard>}
     {isLoading ? <div className="h-56 flex items-center justify-center"><Loader2 size={28} className="text-violet-500 animate-spin" /></div> : !hasData ? <EmptyState onSeed={seedData} isSeeding={isSeeding} /> : <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4"><StatCard label="车型数量" value={vehicles.length} icon={<Layers size={17} />} /><StatCard label="技术点数量" value={technologies.length} icon={<Wrench size={17} />} /><StatCard label="证据数量" value={evidence.length} icon={<FileText size={17} />} /></div>
@@ -319,9 +382,9 @@ export const CompetitorLibrary: React.FC = () => {
     </div>}
     {isDetailLoading && <div className="fixed right-6 top-24 z-[95] text-xs text-cyan-200 bg-black/60 px-3 py-2 rounded border border-white/10">车型详情加载中...</div>}
     <VehicleDetailDrawer vehicle={detailVehicle} onClose={() => setDetailVehicle(null)} onEdit={(vehicle) => setModal({ type: 'vehicle', initial: vehicle })} />
-    <EvidenceDetailDrawer evidence={detailEvidence} onClose={() => setDetailEvidence(null)} />
+    <EvidenceDetailDrawer evidence={detailEvidence} onClose={() => setDetailEvidence(null)} onViewSource={(sourceId) => { setDetailEvidence(null); setTextSourceTarget(sourceId); setTextSourceOpen(true); }} />
     {modal && <MaintenanceModal type={modal.type} initial={modal.initial} vehicles={vehicles} technologies={technologies} onClose={() => setModal(null)} onSave={saveModal} />}
     {excelImportOpen && <ExcelImportModal onClose={() => setExcelImportOpen(false)} onImported={loadData} />}
-    {textSourceOpen && <TextSourceModal vehicles={vehicles} technologies={technologies} onClose={() => setTextSourceOpen(false)} onEvidenceCreated={loadData} />}
+    {textSourceOpen && <TextSourceModal vehicles={vehicles} technologies={technologies} initialSourceId={textSourceTarget} onClose={() => setTextSourceOpen(false)} onEvidenceCreated={loadData} />}
   </div>;
 };

@@ -296,13 +296,31 @@ export const competitors = {
     body: JSON.stringify(payload),
   }),
 
-  sources: async (...args: any[]) => request('/competitors/sources'),
+  sources: async (filters: any = {}, ...args: any[]) => {
+    const query = new URLSearchParams();
+    if (filters.title) query.set('title', filters.title);
+    if (filters.source_type) query.set('source_type', filters.source_type);
+    if (filters.has_evidence !== undefined && filters.has_evidence !== '') {
+      query.set('has_evidence', String(filters.has_evidence));
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return request(`/competitors/sources${suffix}`);
+  },
 
   sourceDetail: async (id: string, ...args: any[]) => request(`/competitors/sources/${encodeURIComponent(id)}`),
 
   createTextSource: async (payload: any, ...args: any[]) => request('/competitors/sources/text', {
     method: 'POST',
     body: JSON.stringify(payload),
+  }),
+
+  updateSource: async (id: string, payload: any, ...args: any[]) => request(`/competitors/sources/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  }),
+
+  deleteSource: async (id: string, ...args: any[]) => request(`/competitors/sources/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
   }),
 
   uploadTextSource: async (file: File, metadata: any = {}, ...args: any[]) => {
