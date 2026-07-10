@@ -78,11 +78,10 @@ export interface CandidateUpdatePayload {
   evidence_text: string;
   page_or_time?: string | null;
   confidence: number;
-  raw_payload?: Record<string, unknown>;
   review_note?: string | null;
 }
 
 export interface CandidateCreatePayload extends CandidateUpdatePayload {
   source_document_id: string;
-  origin?: CandidateOrigin;
+  raw_payload?: Record<string, unknown>;
 }

@@ -249,7 +249,11 @@ async def validate_candidate_business_fields(db: AsyncSession, payload: Any) -> 
             raise HTTPException(status_code=404, detail="匹配技术点不存在")
 
 
-async def create_candidate(db: AsyncSession, payload: Any) -> dict:
+async def create_candidate_record(
+    db: AsyncSession,
+    payload: Any,
+    origin: CandidateOrigin,
+) -> dict:
     await ensure_review_schema()
     source = (
         await db.execute(select(SourceDocument).where(SourceDocument.id == payload.source_document_id))
@@ -259,7 +263,7 @@ async def create_candidate(db: AsyncSession, payload: Any) -> dict:
     await validate_candidate_business_fields(db, payload)
     item = ExtractionCandidate(
         source_document_id=payload.source_document_id,
-        origin=payload.origin,
+        origin=origin,
         status=CandidateStatus.PENDING,
         proposed_brand_name=(payload.proposed_brand_name or "").strip() or None,
         proposed_model_name=(payload.proposed_model_name or "").strip() or None,
@@ -279,6 +283,10 @@ async def create_candidate(db: AsyncSession, payload: Any) -> dict:
     return candidate_to_dict(await get_candidate(db, item.id), include_detail=True)
 
 
+async def create_manual_candidate(db: AsyncSession, payload: Any) -> dict:
+    return await create_candidate_record(db, payload, CandidateOrigin.MANUAL)
+
+
 async def update_candidate(db: AsyncSession, candidate_id: uuid.UUID, payload: Any) -> dict:
     item = await get_candidate(db, candidate_id)
     if item.status != CandidateStatus.PENDING:
@@ -295,7 +303,6 @@ async def update_candidate(db: AsyncSession, candidate_id: uuid.UUID, payload: A
     item.evidence_text = payload.evidence_text.strip()
     item.page_or_time = (payload.page_or_time or "").strip() or None
     item.confidence = payload.confidence
-    item.raw_payload = payload.raw_payload or {}
     item.review_note = (payload.review_note or "").strip() or None
     await db.commit()
     return candidate_to_dict(await get_candidate(db, item.id), include_detail=True)

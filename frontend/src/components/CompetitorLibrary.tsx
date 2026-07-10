@@ -309,7 +309,6 @@ function TextSourceModal({ vehicles, technologies, initialSourceId, onClose, onE
         evidence_text: evidenceForm.evidence_text,
         page_or_time: evidenceForm.page_or_time || null,
         confidence,
-        origin: 'manual',
         raw_payload: { entry: 'text_source_detail' },
       });
       setEvidenceForm({ vehicle_id: '', technology_id: '', proposed_brand_name: '', proposed_model_name: '', proposed_technology_name: '', technology_category: 'other', evidence_text: '', page_or_time: '', confidence: '0.8' });

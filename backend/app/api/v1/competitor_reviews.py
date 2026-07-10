@@ -15,7 +15,7 @@ from app.models.sql import (
 from app.services.candidate_review_service import (
     approve_candidate,
     candidate_to_dict,
-    create_candidate,
+    create_manual_candidate,
     get_candidate,
     get_summary,
     list_candidates,
@@ -40,13 +40,12 @@ class CandidateBusinessPayload(BaseModel):
     evidence_text: str
     page_or_time: Optional[str] = None
     confidence: float = Field(default=0.8, ge=0, le=1)
-    raw_payload: dict[str, Any] = Field(default_factory=dict)
     review_note: Optional[str] = None
 
 
 class CandidateCreatePayload(CandidateBusinessPayload):
     source_document_id: uuid.UUID
-    origin: CandidateOrigin = CandidateOrigin.MANUAL
+    raw_payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class CandidateUpdatePayload(CandidateBusinessPayload):
@@ -91,7 +90,7 @@ async def review_candidates(
 
 @router.post("/candidates")
 async def create_review_candidate(payload: CandidateCreatePayload, db: AsyncSession = Depends(get_db)):
-    return await create_candidate(db, payload)
+    return await create_manual_candidate(db, payload)
 
 
 @router.get("/candidates/{candidate_id}")

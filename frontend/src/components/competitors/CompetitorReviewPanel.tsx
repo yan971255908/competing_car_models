@@ -61,7 +61,7 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
       setItems(list?.items || []);
       if (keepDetailId) {
         const nextDetail = await competitors.reviewCandidateDetail(keepDetailId);
-        openDetail(nextDetail);
+        openDetail(nextDetail, false);
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '审核数据加载失败');
@@ -70,7 +70,7 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
     }
   };
 
-  const openDetail = (candidate: ExtractionCandidate) => {
+  const openDetail = (candidate: ExtractionCandidate, resetApprovalPolicy: boolean) => {
     setDetail(candidate);
     setForm({
       proposed_brand_name: candidate.proposed_brand_name || '',
@@ -87,14 +87,16 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
       review_note: candidate.review_note || '',
     });
     setDirty(false);
-    setCreateMissingVehicle(true);
-    setCreateMissingTechnology(true);
+    if (resetApprovalPolicy) {
+      setCreateMissingVehicle(true);
+      setCreateMissingTechnology(true);
+    }
   };
 
   const loadDetail = async (id: string) => {
     if (detail?.id !== id && dirty && !window.confirm('当前候选存在未保存修改，确定放弃并切换吗？')) return;
     try {
-      openDetail(await competitors.reviewCandidateDetail(id));
+      openDetail(await competitors.reviewCandidateDetail(id), detail?.id !== id);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '候选详情加载失败');
     }
@@ -119,7 +121,6 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
     evidence_text: form.evidence_text,
     page_or_time: form.page_or_time || null,
     confidence: Number(form.confidence),
-    raw_payload: {},
     review_note: form.review_note || null,
   });
 
@@ -138,7 +139,7 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
     const validationError = validateForm();
     if (validationError) throw new Error(validationError);
     const updated = await competitors.updateReviewCandidate(detail.id, buildPayload());
-    openDetail(updated);
+    openDetail(updated, false);
     return updated as ExtractionCandidate;
   };
 
@@ -165,7 +166,7 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
         create_missing_technology: createMissingTechnology,
         review_note: form.review_note || '',
       });
-      openDetail(updated);
+      openDetail(updated, false);
       await onDataChanged();
       await loadReviews(updated.id);
     } catch (err: unknown) {
@@ -181,7 +182,7 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
     setIsReviewing(true); setError('');
     try {
       const updated = await competitors.rejectReviewCandidate(detail.id, { review_note: form.review_note || '' });
-      openDetail(updated);
+      openDetail(updated, false);
       await loadReviews(updated.id);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '拒绝候选失败');
@@ -229,6 +230,10 @@ export function CompetitorReviewPanel({ vehicles, technologies, onDataChanged }:
               <div className="text-xs font-bold text-white/75 mb-2">{detail.source_document?.title}</div>
               <pre className="max-h-[180px] overflow-y-auto custom-scrollbar whitespace-pre-wrap bg-black/20 border border-white/10 rounded p-3 text-[11px] leading-relaxed text-white/65">{detail.source_document?.raw_text || '无正文'}</pre>
             </div>
+            {detail.raw_payload && Object.keys(detail.raw_payload).length > 0 && <details className="border border-white/10 rounded p-3">
+              <summary className="cursor-pointer text-[10px] font-bold text-white/45">原始候选数据（只读）</summary>
+              <pre className="mt-3 max-h-[220px] overflow-auto custom-scrollbar whitespace-pre-wrap bg-black/20 border border-white/10 rounded p-3 text-[11px] leading-relaxed text-white/65">{JSON.stringify(detail.raw_payload, null, 2)}</pre>
+            </details>}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">匹配已有车型<select disabled={controlsDisabled} value={form.matched_vehicle_id || ''} onChange={(event) => set('matched_vehicle_id', event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white disabled:opacity-50"><option value="">不匹配，按候选车型处理</option>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.brand_name} {vehicle.model_name}</option>)}</select></label>
               <label className="flex flex-col gap-1 text-[10px] text-white/40 font-bold">匹配已有技术点<select disabled={controlsDisabled} value={form.matched_technology_id || ''} onChange={(event) => set('matched_technology_id', event.target.value)} className="bg-white/5 border border-white/10 rounded px-3 py-2 text-xs text-white disabled:opacity-50"><option value="">不匹配，按候选技术点处理</option>{technologies.map((technology) => <option key={technology.id} value={technology.id}>{technology.name}</option>)}</select></label>
