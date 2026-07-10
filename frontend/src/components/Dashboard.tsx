@@ -42,6 +42,7 @@ const Dashboard: React.FC = () => {
 	const { signals, loadSignals } = useSignalStore();
 	const [insights, setInsights] = useState<any[]>([]);
 	const [isInsightLoading, setIsInsightLoading] = useState(false);
+	const isCompetitorRole = activeRole === '竞品库';
 
 	const loadL2Insights = async (role: string) => {
 		setIsInsightLoading(true);
@@ -59,8 +60,12 @@ const Dashboard: React.FC = () => {
 	};
 
 	useEffect(() => {
+		if (isCompetitorRole) {
+			setInsights([]);
+			return;
+		}
 		loadL2Insights(activeRole);
-	}, [activeRole]);
+	}, [activeRole, isCompetitorRole]);
 
 	const addNotify = (msg: string, type: 'info' | 'error' | 'success' = 'info') => {
 		const id = Date.now();
@@ -217,7 +222,7 @@ const Dashboard: React.FC = () => {
 									</button>
 								))}
 							</div>
-							<div className="h-4 w-[1px] bg-white/10 mx-2" />
+							{!isCompetitorRole && <><div className="h-4 w-[1px] bg-white/10 mx-2" />
 							<div className="flex items-center gap-6">
 								<div className="flex items-center gap-4">
 									<div className="flex flex-col text-right">
@@ -241,7 +246,7 @@ const Dashboard: React.FC = () => {
 										<Zap size={10} fill="currentColor" />
 									</button>
 								</div>
-							</div>
+							</div></>}
 						</div>
 
 						<div className="flex items-center gap-4">
@@ -255,6 +260,9 @@ const Dashboard: React.FC = () => {
 			{/* Main Content Area */}
 			<div className="pt-28 pb-12 w-full flex flex-col items-center gap-8">
 				<div className={containerClass}>
+					{isCompetitorRole ? (
+						<CompetitorLibrary />
+					) : <>
 					{/* Row 1: Globe Panel */}
 					<div className="h-[550px] w-full mb-8">
 						<GlassCard className="w-full h-full p-0 overflow-hidden relative border-white/10 shadow-[0_0_50px_rgba(139,92,246,0.1)]">
@@ -354,9 +362,7 @@ const Dashboard: React.FC = () => {
 
 					{/* Row 3: Intelligence Panels Grid */}
 					<div className="w-full">
-						{activeRole === '竞品库' ? (
-							<CompetitorLibrary />
-						) : (isPanelsLoading || isFeedsLoading) ? (
+						{(isPanelsLoading || isFeedsLoading) ? (
 							<div className="w-full h-40 flex items-center justify-center">
 								<Loader2 size={32} className="text-violet-500 animate-spin" />
 							</div>
@@ -387,11 +393,12 @@ const Dashboard: React.FC = () => {
 							</GlassCard>
 						)}
 					</div>
+					</>}
 				</div>
 			</div>
 
 			{/* Console Overlay - Hardcore Progress Support */}
-			<div className={`fixed bottom-6 right-[74px] z-[60] transition-all duration-300 ${isConsoleOpen ? 'w-[400px] h-[320px]' : 'w-64 h-10'}`}>
+			{!isCompetitorRole && <div className={`fixed bottom-6 right-[74px] z-[60] transition-all duration-300 ${isConsoleOpen ? 'w-[400px] h-[320px]' : 'w-64 h-10'}`}>
 				<GlassCard className="w-full h-full flex flex-col overflow-hidden border-white/10 shadow-2xl">
 					<div className="flex items-center justify-between px-4 py-2 bg-white/5 border-b border-white/5 cursor-pointer shrink-0" onClick={() => setIsConsoleOpen(!isConsoleOpen)}>
 						<div className="flex items-center gap-2">
@@ -436,7 +443,7 @@ const Dashboard: React.FC = () => {
 						</div>
 					)}
 				</GlassCard>
-			</div>
+			</div>}
 
 			<SettingsModal
 				isOpen={isSettingsOpen}

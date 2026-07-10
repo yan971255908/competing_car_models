@@ -58,6 +58,17 @@ class TechnologyMaturityLevel(str, enum.Enum):
     MASS_PRODUCTION = "mass_production"
 
 
+class CandidateStatus(str, enum.Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class CandidateOrigin(str, enum.Enum):
+    MANUAL = "manual"
+    AI = "ai"
+
+
 class SourceDocument(Base):
     """竞品库来源文档: 发布会、Excel、网页、转写文本等原始资料。"""
     __tablename__ = "source_documents"
@@ -71,6 +82,7 @@ class SourceDocument(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     evidence_items: Mapped[List["Evidence"]] = relationship(back_populates="source_document")
+    extraction_candidates: Mapped[List["ExtractionCandidate"]] = relationship(back_populates="source_document")
 
     __table_args__ = (
         Index("idx_source_document_created", "created_at"),
@@ -277,6 +289,66 @@ class Evidence(Base):
         Index("idx_evidence_source", "source_document_id"),
         Index("idx_evidence_vehicle", "vehicle_id"),
         Index("idx_evidence_technology", "technology_id"),
+    )
+
+
+class ExtractionCandidate(Base):
+    """竞品库候选审核记录: 从来源文档中识别出的待确认车型-技术-证据三元组。"""
+    __tablename__ = "extraction_candidates"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source_document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("source_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    origin: Mapped[CandidateOrigin] = mapped_column(Enum(CandidateOrigin), default=CandidateOrigin.MANUAL, index=True)
+    status: Mapped[CandidateStatus] = mapped_column(Enum(CandidateStatus), default=CandidateStatus.PENDING, index=True)
+
+    proposed_brand_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    proposed_model_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    matched_vehicle_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("vehicle_models.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    proposed_technology_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    technology_category: Mapped[TechnologyCategory] = mapped_column(Enum(TechnologyCategory), default=TechnologyCategory.OTHER)
+    technology_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    maturity_level: Mapped[TechnologyMaturityLevel] = mapped_column(
+        Enum(TechnologyMaturityLevel),
+        default=TechnologyMaturityLevel.CONCEPT,
+    )
+    matched_technology_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("technology_points.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    evidence_text: Mapped[str] = mapped_column(Text, nullable=False)
+    page_or_time: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.8)
+    raw_payload: Mapped[dict] = mapped_column(JSONB, default=dict)
+    review_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    approved_evidence_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("evidence.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    source_document: Mapped["SourceDocument"] = relationship(back_populates="extraction_candidates")
+    matched_vehicle: Mapped[Optional["VehicleModel"]] = relationship(foreign_keys=[matched_vehicle_id])
+    matched_technology: Mapped[Optional["TechnologyPoint"]] = relationship(foreign_keys=[matched_technology_id])
+    approved_evidence: Mapped[Optional["Evidence"]] = relationship(foreign_keys=[approved_evidence_id])
+
+    __table_args__ = (
+        Index("idx_candidate_source", "source_document_id"),
+        Index("idx_candidate_status", "status"),
+        Index("idx_candidate_origin", "origin"),
+        Index("idx_candidate_created", "created_at"),
     )
 
 class MarketTimeSeries(Base):

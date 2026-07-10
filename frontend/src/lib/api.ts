@@ -345,6 +345,42 @@ export const competitors = {
     body: JSON.stringify(payload),
   }),
 
+  reviewSummary: async (...args: any[]) => request('/competitors/reviews/summary'),
+
+  reviewCandidates: async (filters: any = {}, ...args: any[]) => {
+    const query = new URLSearchParams();
+    if (filters.status) query.set('status', filters.status);
+    if (filters.origin) query.set('origin', filters.origin);
+    if (filters.source_document_id) query.set('source_document_id', filters.source_document_id);
+    if (filters.keyword) query.set('keyword', filters.keyword);
+    if (filters.page) query.set('page', String(filters.page));
+    if (filters.page_size) query.set('page_size', String(filters.page_size));
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return request(`/competitors/reviews/candidates${suffix}`);
+  },
+
+  reviewCandidateDetail: async (id: string, ...args: any[]) => request(`/competitors/reviews/candidates/${encodeURIComponent(id)}`),
+
+  createReviewCandidate: async (payload: any, ...args: any[]) => request('/competitors/reviews/candidates', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+
+  updateReviewCandidate: async (id: string, payload: any, ...args: any[]) => request(`/competitors/reviews/candidates/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  }),
+
+  approveReviewCandidate: async (id: string, payload: any, ...args: any[]) => request(`/competitors/reviews/candidates/${encodeURIComponent(id)}/approve`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+
+  rejectReviewCandidate: async (id: string, payload: any, ...args: any[]) => request(`/competitors/reviews/candidates/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }),
+
   downloadExcelTemplate: async (...args: any[]) => {
     const response = await fetch(`${API_BASE_URL}/competitors/import/excel/template`);
     if (!response.ok) throw new Error(`模板下载失败: ${response.status}`);
